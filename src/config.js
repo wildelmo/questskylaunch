@@ -81,6 +81,28 @@ export const FLIGHT = {
     { t: 120, deg: 82 },
     { t: 176, deg: 87 },
   ],
+
+  // --- throttle -------------------------------------------------------------
+  // Hands off, you get the ride described above.  Buried, you get a rocket.
+  //
+  // The multiplier is on the profile clock, so it speeds up the climb, the
+  // pitch-over and everything derived from them at once.  Ten is about as far
+  // as it is worth going: the whole ascent collapses to eighteen seconds and
+  // the ground is gone before you have registered leaving it.
+  maxThrottle: 10.0,
+  // Full brake runs the clock backwards, so you can stop and hang there, or
+  // come back down for another look at something.
+  maxBrake: 3.0,
+  // Seconds to spool up and back down.  Slow enough to feel like mass moving
+  // rather than like a number changing.
+  throttleAttack: 0.55,
+  throttleRelease: 0.40,
+  // However hard you pull, you are never rotated faster than this.  The
+  // pitch-over runs on the same clock as the altitude, so at ten times speed it
+  // would otherwise swing you through eighty degrees in seven seconds, which is
+  // the one part of this that could genuinely make someone ill.  Past the
+  // limit the attitude simply lags the profile and catches up later.
+  maxPitchRate: 4.5, // degrees per second
 };
 
 export const QUALITY = {

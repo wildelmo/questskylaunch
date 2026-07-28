@@ -74,8 +74,21 @@ export function createHud() {
   let lastDraw = -1;
   let opacity = 0;
 
-  function draw(altitude, speed, caption, hint) {
+  function draw(altitude, speed, caption, hint, throttle) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Throttle bar, only once you are actually asking for something.  It sits
+    // to the left of the altitude so the number stays where it was.
+    if (throttle > 0.02) {
+      const w = 210;
+      const x = canvas.width / 2 - w / 2;
+      ctx.fillStyle = 'rgba(150, 176, 208, 0.22)';
+      ctx.fillRect(x, 14, w, 7);
+      ctx.fillStyle = throttle > 0.92
+        ? 'rgba(255, 176, 120, 0.95)'
+        : 'rgba(168, 210, 255, 0.85)';
+      ctx.fillRect(x, 14, w * throttle, 7);
+    }
 
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(232, 240, 255, 0.95)';
@@ -110,7 +123,7 @@ export function createHud() {
     },
 
     /** @param camera the XR camera, whose world transform we trail. */
-    update(camera, dt, { altitude, climbRate, hint }) {
+    update(camera, dt, { altitude, climbRate, hint, throttle = 0 }) {
       camera.getWorldPosition(targetPosition);
       camera.getWorldQuaternion(targetQuaternion);
 
@@ -125,10 +138,10 @@ export function createHud() {
         lastDraw = now;
         let caption = MILESTONES[0].text;
         for (const m of MILESTONES) if (altitude >= m.alt) caption = m.text;
-        const key = `${formatAltitude(altitude)}|${caption}|${hint || ''}`;
+        const key = `${formatAltitude(altitude)}|${caption}|${hint || ''}|${Math.round(throttle * 20)}`;
         if (key !== lastText) {
           lastText = key;
-          draw(altitude, formatSpeed(climbRate), caption, hint);
+          draw(altitude, formatSpeed(climbRate), caption, hint, throttle);
         }
       }
 
