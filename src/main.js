@@ -180,7 +180,11 @@ async function main() {
   const flight = createFlight();
   const audio = createAudio();
 
-  const settings = { comfortVignette: true, autoStart: true };
+  // The comfort vignette is off by default.  A vertical ascent with no lateral
+  // motion is at the gentle end of what VR does to people, and darkening the
+  // edge of a view whose whole point is how far it goes is a real cost.  It is
+  // one button away for anyone who wants it.
+  const settings = { comfortVignette: false, autoStart: true };
   // Naming controls that do not exist on the device you are holding is worse
   // than saying nothing, so the hint follows the input you actually have.
   const XR_HINT = 'Trigger: launch  ·  Stick: speed  ·  B/Y: comfort';
@@ -369,6 +373,12 @@ async function main() {
       terrain.uniforms[name].value = value;
       return `${name}=${terrain.uniforms[name].value}`;
     },
+    /** Force the comfort vignette on so a still frame can show what it does;
+     * the real toggle is a controller button and there is no controller here. */
+    setVignette(enabled) {
+      settings.comfortVignette = enabled;
+      return settings.comfortVignette;
+    },
     /** Swap a prop's material for a flat colour, to separate "the geometry is
      * not there" from "my shader is not drawing it". */
     debugMaterial(name) {
@@ -423,6 +433,7 @@ async function main() {
       return {
         flightClock: Number(flight.state.clock.toFixed(2)),
         hudVisible: hud.group.visible,
+        vignetteStrength: Number(vignette.material.uniforms.uStrength.value.toFixed(3)),
         textVisible,
         running: flight.state.running,
         altitudeKm: Number(flight.state.altitude.toFixed(3)),

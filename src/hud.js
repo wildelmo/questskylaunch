@@ -165,12 +165,17 @@ layout(location = 0) out vec4 fragColor;
 uniform float uStrength;
 
 void main() {
-  // Elliptical, because the field of view is not square and a circular tunnel
-  // crops more off the top and bottom than it needs to.
-  float r = length(vPosition * vec2(0.82, 1.0));
-  float inner = mix(1.35, 0.42, uStrength);
-  float outer = inner + 0.42;
-  float a = smoothstep(inner, outer, r) * clamp(uStrength * 1.15, 0.0, 1.0);
+  // A circle in clip space is already an ellipse on screen with the frame's own
+  // aspect, which is what you want: the periphery is wider than it is tall.
+  // Squashing x on top of that, as this used to, shaded the top and bottom
+  // first and left the sides clear -- the opposite of covering the periphery.
+  float r = length(vPosition);
+  // Fully on is a shading of the corners, not a gunsight.  The old range
+  // brought the inner edge in to 0.42 of the frame, which is a scope you look
+  // down rather than something you stop noticing.
+  float inner = mix(1.6, 0.78, uStrength);
+  float outer = inner + 0.5;
+  float a = smoothstep(inner, outer, r) * uStrength * 0.8;
   fragColor = vec4(0.0, 0.0, 0.0, a);
 }
 `;

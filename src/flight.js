@@ -154,21 +154,27 @@ export function createFlight() {
     },
 
     /**
-     * How hard the vignette should close in.  Vection sickness in a passive
-     * ascent comes from two places: optical flow past nearby objects, and being
-     * rotated without having asked to be.  Both are strongest early on, near
-     * the ground, so the vignette is at its tightest exactly then and is gone
-     * by the time there is nothing left to stream past you.
+     * How far the comfort vignette should close, as a single hump in altitude.
+     *
+     * This used to be built from the climb rate divided by the altitude, plus a
+     * term for how fast you were being rotated.  That is a defensible model of
+     * where vection comes from and a terrible thing to look at.  Both of those
+     * inputs are derivatives of splines, so every kink in the ascent profile
+     * arrived amplified: it shut hard at ten seconds, sprang back open at
+     * fourteen, held a shelf to eighteen, stepped down at twenty and then
+     * reopened slightly at twenty-five.  A vignette you can watch moving is
+     * worse than no vignette at all -- it draws the eye to precisely the
+     * periphery it exists to quieten.
+     *
+     * Altitude only ever increases while you are climbing, so an envelope built
+     * from altitude alone can rise once and fall once and do nothing else.  It
+     * arrives as you leave the grass behind and is gone by the time the ground
+     * is too far away to stream past you.
      */
     comfort() {
-      // Standing still is not uncomfortable, so gate everything on actually
-      // moving before scaling by how fast the near field is streaming past.
-      const moving = smoothstep(0.01, 0.06, Math.abs(state.climbRate));
-      const flowNearGround = Math.min(
-        Math.abs(state.climbRate) / Math.max(state.altitude * 0.35 + 0.02, 0.02), 1);
-      const rotation = Math.min(Math.abs(state.pitchRate) / 0.045, 1);
-      const groundProximity = 1 - smoothstep(0.5, 12, state.altitude);
-      return Math.min(moving * flowNearGround * groundProximity * 0.8 + rotation * 0.35, 1);
+      const arrive = smoothstep(0.02, 0.15, state.altitude);
+      const depart = 1 - smoothstep(1.5, 7.0, state.altitude);
+      return arrive * depart;
     },
   };
 }
