@@ -23,8 +23,8 @@ const MILESTONES = [
   { alt: 900.0, text: 'Above the aurora' },
   { alt: 2400.0, text: 'The whole planet is closing into a circle' },
   { alt: 6000.0, text: 'One Earth radius out' },
-  { alt: 14000.0, text: 'Half the way to the geostationary belt' },
-  { alt: 28000.0, text: 'Everyone who has ever lived, in one glance' },
+  { alt: 11000.0, text: 'Everyone who has ever lived, in one glance' },
+  { alt: 16000.0, text: 'Nothing between you and it' },
 ];
 
 function formatAltitude(km) {

@@ -4,7 +4,7 @@ A WebXR experience for the Meta Quest 3. You are standing in a field in the
 Sierra foothills at half past four on a June afternoon. Then you start going up,
 and you do not stop until the whole planet fits inside your eyes.
 
-It is one continuous shot from a blade of grass to thirty thousand kilometres —
+It is one continuous shot from a blade of grass to eighteen thousand kilometres —
 no cuts, no loading, no change of scene. The sky darkens through indigo into
 black, the horizon bends, the thin blue shell you have spent your whole life
 inside becomes a visible object with an edge, and the Earth falls away in front
