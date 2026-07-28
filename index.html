@@ -25,6 +25,19 @@
         padding: 6vmin;
         pointer-events: none;
         background: radial-gradient(120% 90% at 50% 0%, rgba(18, 34, 62, 0.55), rgba(4, 6, 11, 0.9));
+        transition: opacity 900ms ease;
+      }
+      /* Once the ascent starts, the introduction has done its job. */
+      #overlay.dismissed {
+        opacity: 0;
+        pointer-events: none;
+      }
+      /* H clears the lot, including three's Enter VR button, so the view can be
+         looked at — or photographed — with nothing written on it. */
+      body.no-chrome #overlay,
+      body.no-chrome > button {
+        opacity: 0 !important;
+        pointer-events: none !important;
       }
       #panel {
         max-width: 34rem;
@@ -58,6 +71,7 @@
       body > button {
         font-family: inherit !important;
         letter-spacing: 0.04em !important;
+        transition: opacity 900ms ease;
       }
     </style>
   </head>
@@ -76,6 +90,7 @@
           <div><b>Thumbstick press</b> — back to normal speed</div>
           <div><b>B / Y</b> — comfort vignette on and off</div>
           <div><b>Desktop preview</b> — drag to look, space to launch, R to restart</div>
+          <div><b>H</b> — hide every piece of text, here and in the world</div>
         </div>
         <div id="status">Starting up…</div>
       </div>
