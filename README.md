@@ -154,10 +154,12 @@ all agree with each other because they are all derived from the same date.
 ### Comfort
 
 A passive ascent is one of the gentler things to do to someone in VR, but it is
-not free. Two mitigations, both dynamic:
+not free. Two mitigations:
 
-- The **vignette** closes in proportion to optical flow past nearby objects and to how fast you are being rotated, both of which peak in the first thirty seconds and are gone by the time there is nothing left to stream past you.
 - You **rotate onto your stomach at about a degree a second**, over a minute, so the planet swings from beneath your feet round to in front of your face without ever feeling like you are being spun. The rotation happens about a point near your head, not your ankles.
+- An optional **vignette** shades the corners between roughly 150 m and 5 km, where the ground is still close enough to stream past you. It is **off by default** — a vertical ascent with no lateral motion is at the gentle end of what VR does to people, and darkening the edge of a view whose entire point is how far it goes is a real cost. **B / Y** turns it on.
+
+The vignette used to be driven by climb rate over altitude plus rotation rate. Both are spline derivatives, so every kink in the ascent profile arrived amplified: it shut hard at ten seconds, sprang open at fourteen, held a shelf, stepped down at twenty and reopened at twenty-five. A vignette you can watch moving is worse than none, because it draws the eye to exactly the periphery it exists to quieten. It is now a single hump in altitude, which only ever increases, so it can rise once and fall once and do nothing else.
 
 Nothing accelerates sharply, nothing moves sideways, and the horizon stays level
 the whole way up.
