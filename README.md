@@ -66,9 +66,12 @@ load, and just show an empty black sky.
 | Thumbstick click | Back to normal speed |
 | B / Y | Comfort vignette on and off |
 
-On a desktop browser the same scene runs in a window: drag to look, space to
-launch, **R** to restart. It is much easier to iterate on than the headset, and
-`tools/smoke.mjs` drives it headlessly.
+On a desktop browser the same scene runs in a window: drag to look, **space** to
+launch, **R** to restart, **H** to hide every piece of text — the intro panel,
+the Enter VR button and the in-world altitude readout — for a clean frame. The
+intro panel also dismisses itself as soon as the ascent begins. It is much
+easier to iterate on than the headset, and `tools/smoke.mjs` drives it
+headlessly.
 
 ---
 

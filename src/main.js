@@ -181,7 +181,11 @@ async function main() {
   const audio = createAudio();
 
   const settings = { comfortVignette: true, autoStart: true };
-  let hint = 'Trigger: launch  ·  Stick: speed  ·  B/Y: comfort';
+  // Naming controls that do not exist on the device you are holding is worse
+  // than saying nothing, so the hint follows the input you actually have.
+  const XR_HINT = 'Trigger: launch  ·  Stick: speed  ·  B/Y: comfort';
+  const DESKTOP_HINT = 'Space: launch  ·  R: restart  ·  H: hide all text';
+  let hint = DESKTOP_HINT;
   let startDelay = 4.0;
 
   function restart() {
@@ -267,9 +271,34 @@ async function main() {
     look.x = event.clientX;
     look.y = event.clientY;
   });
+  // --- screen furniture -----------------------------------------------------
+  // The intro panel is only in the way once you have read it, so it goes as
+  // soon as the ascent begins.  H clears everything, including the in-world
+  // readout and the Enter VR button, for a frame with nothing written on it.
+  let textVisible = true;
+
+  function setChrome(visible) {
+    if (overlay) overlay.classList.toggle('dismissed', !visible);
+  }
+
+  function setAllText(visible) {
+    textVisible = visible;
+    // The class hides the page furniture on its own; the intro panel keeps its
+    // own dismissed state underneath, so toggling back does not bring it
+    // returning from the dead once the ascent has started.
+    document.body.classList.toggle('no-chrome', !visible);
+    hud.setVisible(visible);
+  }
+
   window.addEventListener('keydown', (event) => {
-    if (event.code === 'Space') { flight.toggle(); startDelay = 0; }
+    if (event.code === 'Space') {
+      event.preventDefault();
+      flight.toggle();
+      startDelay = 0;
+      setChrome(false);
+    }
     if (event.code === 'KeyR') restart();
+    if (event.code === 'KeyH') setAllText(!textVisible);
   });
 
   window.addEventListener('resize', () => {
@@ -280,17 +309,17 @@ async function main() {
 
   // --- session lifecycle ----------------------------------------------------
   renderer.xr.addEventListener('sessionstart', () => {
-    if (overlay) overlay.style.display = 'none';
+    setChrome(false);
     renderer.xr.setFoveation(QUALITY.foveation);
     audio.resume();
     flight.restart();
     flight.pause();
     startDelay = settings.autoStart ? 5.0 : Infinity;
-    hint = 'Trigger: launch  ·  Stick: speed  ·  B/Y: comfort';
+    hint = XR_HINT;
     hintTimer = 9;
   });
   renderer.xr.addEventListener('sessionend', () => {
-    if (overlay) overlay.style.display = '';
+    setChrome(true);
   });
 
   document.body.appendChild(VRButton.createButton(renderer, {
@@ -320,7 +349,7 @@ async function main() {
   window.__skylaunch = {
     ready: true,
     pose({ alt = 0, pitch = 0, look: [yaw = 0, pitchLook = 0] = [] }) {
-      if (overlay) overlay.style.display = 'none';
+      setChrome(false);
       override.active = true;
       override.altitude = alt;
       override.pitch = pitch;
@@ -392,6 +421,11 @@ async function main() {
     },
     stats() {
       return {
+        flightClock: Number(flight.state.clock.toFixed(2)),
+        hudVisible: hud.group.visible,
+        textVisible,
+        running: flight.state.running,
+        altitudeKm: Number(flight.state.altitude.toFixed(3)),
         drawCalls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
         programs: renderer.info.programs.length,
@@ -419,7 +453,10 @@ async function main() {
     readInput(dt);
     if (startDelay > 0 && startDelay !== Infinity) {
       startDelay -= dt;
-      if (startDelay <= 0) flight.start();
+      if (startDelay <= 0) {
+        flight.start();
+        setChrome(false);
+      }
     }
     flight.update(dt);
 
