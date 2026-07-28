@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <title>Skylaunch — a WebXR ascent to orbit</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #05070c;
+        color: #dfe7f4;
+        font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+        overflow: hidden;
+      }
+      canvas { display: block; }
+
+      #overlay {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 6vmin;
+        pointer-events: none;
+        background: radial-gradient(120% 90% at 50% 0%, rgba(18, 34, 62, 0.55), rgba(4, 6, 11, 0.9));
+      }
+      #panel {
+        max-width: 34rem;
+        pointer-events: auto;
+        text-align: center;
+      }
+      h1 {
+        font-size: clamp(1.9rem, 5vw, 2.9rem);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin: 0 0 0.4rem;
+      }
+      .lede { color: #9fb4d4; margin: 0 0 1.6rem; }
+      .keys {
+        display: grid;
+        gap: 0.35rem;
+        margin: 1.4rem auto 0;
+        max-width: 26rem;
+        text-align: left;
+        color: #8fa5c4;
+        font-size: 0.9rem;
+      }
+      .keys b { color: #cfdcf0; font-weight: 600; }
+      #status {
+        margin-top: 1.3rem;
+        color: #7b90ae;
+        font-size: 0.86rem;
+        min-height: 1.2em;
+      }
+      /* three.js drops its own Enter VR button into the page; make it match. */
+      body > button {
+        font-family: inherit !important;
+        letter-spacing: 0.04em !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="overlay">
+      <div id="panel">
+        <h1>Skylaunch</h1>
+        <p class="lede">
+          You are standing in a field in the Sierra foothills at half past four in the
+          afternoon. In a moment you will start going up, and you will not stop until
+          the whole planet fits inside your eyes.
+        </p>
+        <div class="keys">
+          <div><b>Trigger / A</b> — launch, then pause and resume</div>
+          <div><b>Thumbstick</b> — push forward to climb faster, pull back to slow or descend</div>
+          <div><b>Thumbstick press</b> — back to normal speed</div>
+          <div><b>B / Y</b> — comfort vignette on and off</div>
+          <div><b>Desktop preview</b> — drag to look, space to launch, R to restart</div>
+        </div>
+        <div id="status">Starting up…</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
