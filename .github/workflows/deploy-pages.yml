@@ -1,0 +1,69 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Read the repo, mint the OIDC token Pages deployment needs, and nothing else.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deployments at once, and never cancel one that is already
+# publishing — a half-uploaded artifact is worse than a slightly stale site.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Check the bundle came out whole
+        # The textures and the star catalogue are the experience; a build that
+        # silently dropped them would still deploy and still load, and would
+        # just show an empty black sky.
+        run: |
+          set -eu
+          for f in \
+            dist/index.html \
+            dist/data/stars.bin \
+            dist/textures/earth_albedo_8k.jpg \
+            dist/textures/earth_albedo_4k.jpg \
+            dist/textures/earth_night_4k.jpg \
+            dist/textures/earth_clouds_4k.jpg \
+            dist/textures/earth_surface_4k.jpg
+          do
+            test -s "$f" || { echo "missing or empty: $f"; exit 1; }
+          done
+          echo "bundle: $(du -sh dist | cut -f1)"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

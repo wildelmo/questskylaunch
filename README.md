@@ -10,6 +10,9 @@ black, the horizon bends, the thin blue shell you have spent your whole life
 inside becomes a visible object with an edge, and the Earth falls away in front
 of you.
 
+**Live:** <https://wildelmo.github.io/questskylaunch/> — open it in the Meta Quest
+Browser and press **Enter VR**. Every push to `main` redeploys it.
+
 ---
 
 ## Running it
@@ -30,6 +33,9 @@ On the Quest:
 The ascent starts by itself about five seconds after the session begins, so you
 can put your hands down.
 
+If you would rather not deal with certificates, the deployed copy above is
+already served over HTTPS and works the same way.
+
 For a production build:
 
 ```bash
@@ -38,7 +44,17 @@ npm run preview
 ```
 
 Everything is static and self-contained — no server, no API keys, no network
-access at runtime.
+access at runtime. Asset paths are relative, so it works from a subdirectory,
+which is how GitHub Pages serves a project repo.
+
+### Deployment
+
+`.github/workflows/deploy-pages.yml` builds and publishes to GitHub Pages on
+every push to `main`. It needs the repository's **Settings → Pages → Source**
+set to **GitHub Actions**; nothing else is configured. The workflow checks that
+the textures and the star catalogue actually made it into the bundle before it
+uploads, because a build that quietly dropped them would still deploy, still
+load, and just show an empty black sky.
 
 ### Controls
 
