@@ -60,11 +60,15 @@ load, and just show an empty black sky.
 
 | Input | Effect |
 | --- | --- |
-| Trigger / A | Launch; then pause and resume. Restarts once you reach the top |
-| Thumbstick forward | Climb faster, up to 5× |
-| Thumbstick back | Slow down, or reverse and descend |
-| Thumbstick click | Back to normal speed |
+| **Trigger** | Throttle, analog. Squeeze to launch. Buried, the whole climb takes eighteen seconds |
+| **Grip** | Brake, analog. Ease off, stop and hang there, or come back down |
+| A / X | Pause and resume; restart once you reach the top |
+| Thumbstick | The same throttle and brake, for anyone who would rather not hold a trigger |
 | B / Y | Comfort vignette on and off |
+
+Let go of everything and you get the composed three-minute ride. The throttle is
+something you add to that, not something you have to hold down to make anything
+happen.
 
 On a desktop browser the same scene runs in a window: drag to look, **space** to
 launch, **R** to restart, **H** to hide every piece of text — the intro panel,
@@ -150,6 +154,37 @@ The experience is set at a real instant, 2024-06-21 22:38 UTC, and the sun's
 position is computed from it. The terminator, the shadow directions, the
 sidereal angle that orients the constellations and the length of the afternoon
 all agree with each other because they are all derived from the same date.
+
+### The throttle
+
+Hands off, the profile runs at the pace it was written for. Pull the trigger and
+the multiplier goes on the profile clock, so the climb, the pitch-over and
+everything derived from them speed up together — up to ten times, which collapses
+the whole ascent to about eighteen seconds and puts you above the Kármán line in
+five.
+
+Three things make that feel like a launch rather than a fast-forward, and all
+three are driven by the same number: **aerodynamic buffet**, computed as speed
+times the square root of air density.
+
+- **The shake.** A few millimetres of translation at ten to twenty hertz. Almost entirely positional — that reads as vibration, whereas the same amount of *rotation* reads as the world moving and is the most reliable way to make someone ill. There is a whisper of rotation for texture, and the comfort setting halves the lot.
+- **The engine.** Brown noise through a steep lowpass with resonances at 31 and 62 Hz. It follows the throttle rather than the airspeed, so it arrives the instant you pull.
+- **The haptics.** Both controllers, re-pulsed ten times a second because WebXR only offers one-shots.
+
+Because buffet depends on air density, all three peak together around fourteen
+kilometres and then die away *while you are still accelerating hard*. That is
+max Q, it lands within a kilometre of where a real launch has it, and nothing
+about it had to be arranged — it falls out of the ascent profile and the
+atmosphere's scale height. The engine drops to a third of its volume at the same
+time, with the top end closed right down, because past that there is no air to
+carry it and what reaches you is structure-borne. The climb going quiet while
+the numbers are still climbing is the best moment in the run.
+
+One thing is deliberately *not* on the throttle. The pitch-over is rate limited
+to 4.5°/s no matter how hard you pull; past that the attitude lags the profile
+and catches up later. Unlimited, ten times speed would swing you through eighty
+degrees in seven seconds, which is the one part of this that could genuinely
+make someone ill.
 
 ### Comfort
 

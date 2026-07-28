@@ -64,6 +64,35 @@ export function createAudio() {
     rumble.connect(rumbleFilter).connect(rumbleGain).connect(master);
     rumble.start();
 
+    // --- the engine ----------------------------------------------------------
+    // A rocket is mostly broadband noise with a hard low-frequency shelf, so
+    // this is brown noise through a steep lowpass with two resonances sitting
+    // on top: one down where you feel it rather than hear it, one in the chest
+    // register that gives it a throat.  It follows the throttle, not the
+    // airspeed, so it is there the instant you pull and it does not vanish when
+    // the atmosphere does.
+    const engine = context.createBufferSource();
+    engine.buffer = noiseBuffer(context, 7, true);
+    engine.loop = true;
+    const engineLow = context.createBiquadFilter();
+    engineLow.type = 'lowpass';
+    engineLow.frequency.value = 260;
+    engineLow.Q.value = 0.4;
+    const engineBody = context.createBiquadFilter();
+    engineBody.type = 'peaking';
+    engineBody.frequency.value = 62;
+    engineBody.Q.value = 1.4;
+    engineBody.gain.value = 11;
+    const engineSub = context.createBiquadFilter();
+    engineSub.type = 'peaking';
+    engineSub.frequency.value = 31;
+    engineSub.Q.value = 2.2;
+    engineSub.gain.value = 9;
+    const engineGain = context.createGain();
+    engineGain.gain.value = 0.0;
+    engine.connect(engineLow).connect(engineBody).connect(engineSub).connect(engineGain).connect(master);
+    engine.start();
+
     // --- a field at four in the afternoon ------------------------------------
     const meadow = context.createBufferSource();
     meadow.buffer = noiseBuffer(context, 6, false);
@@ -102,6 +131,7 @@ export function createAudio() {
 
     Object.assign(nodes, {
       master, windFilter, windGain, rumbleGain, rumbleFilter, meadowGain, padGain, oscillators,
+      engineGain, engineLow, engineBody,
     });
   }
 
@@ -138,8 +168,10 @@ export function createAudio() {
     /**
      * @param altitudeKm  height above the launch site
      * @param climbKmPerSecond how fast that is changing
+     * @param throttle how hard the trigger is pulled, 0..1
+     * @param buffet how hard the air is shaking you, 0..1
      */
-    update(altitudeKm, climbKmPerSecond) {
+    update(altitudeKm, climbKmPerSecond, throttle = 0, buffet = 0) {
       if (!started || !context) return;
 
       // Air density, roughly, from the same scale height the sky shader uses.
@@ -150,8 +182,19 @@ export function createAudio() {
 
       ramp(nodes.windGain.gain, Math.min(0.10 + pressure * 0.85, 0.85), 0.35);
       ramp(nodes.windFilter.frequency, 380 + Math.min(speed, 3) * 900, 0.35);
-      ramp(nodes.rumbleGain.gain, Math.min(pressure * 0.75, 0.6), 0.4);
+      ramp(nodes.rumbleGain.gain, Math.min(pressure * 0.75 + buffet * 0.35, 0.7), 0.4);
       ramp(nodes.rumbleFilter.frequency, 70 + Math.min(speed, 4) * 45, 0.4);
+
+      // The engine follows the throttle rather than the air, so it arrives the
+      // instant you pull.  In vacuum there is nothing to carry it to you except
+      // the structure you are riding, so it drops to a third and the top end
+      // closes right down -- felt rather than heard.  That handover happening
+      // on its own, while you are still accelerating hard, is the moment the
+      // climb stops being loud.
+      const carriedByAir = Math.min(density * 1.4, 1);
+      ramp(nodes.engineGain.gain, throttle * (0.16 + carriedByAir * 0.42), 0.25);
+      ramp(nodes.engineLow.frequency, 90 + carriedByAir * 230, 0.5);
+      ramp(nodes.engineBody.gain, 6 + carriedByAir * 7, 0.5);
 
       // Insects and the sound of a field stay behind almost immediately.
       const onTheGround = Math.max(0, 1 - altitudeKm / 0.25);

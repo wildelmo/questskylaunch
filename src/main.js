@@ -198,60 +198,96 @@ async function main() {
   }
 
   const session = { pressed: new Set() };
+  const keys = { throttle: 0, brake: 0 };
 
-  function readInput(dt) {
+  /** Dead-zoned and squared, so the first millimetre of pull does nothing. */
+  function shapeAnalog(value, deadZone = 0.06) {
+    if (value <= deadZone) return 0;
+    const t = (value - deadZone) / (1 - deadZone);
+    return t * t;
+  }
+
+  function readInput() {
+    let throttle = keys.throttle;
+    let brake = keys.brake;
+
     const xrSession = renderer.xr.getSession();
-    if (!xrSession) return;
+    if (xrSession) {
+      for (const source of xrSession.inputSources) {
+        const pad = source.gamepad;
+        if (!pad) continue;
 
-    let stick = 0;
-    for (const source of xrSession.inputSources) {
-      const pad = source.gamepad;
-      if (!pad) continue;
+        // Either hand, whichever is pulled harder.  Nobody should have to
+        // remember which controller the throttle is on.
+        throttle = Math.max(throttle, shapeAnalog(pad.buttons[0]?.value ?? 0));
+        brake = Math.max(brake, shapeAnalog(pad.buttons[1]?.value ?? 0));
 
-      const axes = pad.axes;
-      if (axes.length >= 4 && Math.abs(axes[3]) > 0.15) stick = -axes[3];
-      else if (axes.length >= 2 && Math.abs(axes[1]) > 0.15) stick = -axes[1];
+        // The stick still works, for anyone who would rather hold a position
+        // than a trigger.
+        const axes = pad.axes;
+        const stick = axes.length >= 4 ? -axes[3] : (axes.length >= 2 ? -axes[1] : 0);
+        if (stick > 0.15) throttle = Math.max(throttle, shapeAnalog((stick - 0.15) / 0.85));
+        else if (stick < -0.15) brake = Math.max(brake, shapeAnalog((-stick - 0.15) / 0.85));
 
-      const handed = source.handedness || 'none';
-      const press = (index, name) => {
-        const button = pad.buttons[index];
-        if (!button) return false;
-        const key = `${handed}:${name}`;
-        const was = session.pressed.has(key);
-        if (button.pressed) session.pressed.add(key);
-        else session.pressed.delete(key);
-        return button.pressed && !was;
-      };
+        const handed = source.handedness || 'none';
+        const press = (index, name) => {
+          const button = pad.buttons[index];
+          if (!button) return false;
+          const key = `${handed}:${name}`;
+          const was = session.pressed.has(key);
+          if (button.pressed) session.pressed.add(key);
+          else session.pressed.delete(key);
+          return button.pressed && !was;
+        };
 
-      if (press(0, 'trigger') || press(4, 'a')) {
-        if (flight.state.finished) restart();
-        else if (!flight.state.running && flight.state.clock === 0) {
-          flight.start();
-          startDelay = 0;
-        } else flight.toggle();
-        hint = '';
-      }
-      if (press(5, 'b')) {
-        settings.comfortVignette = !settings.comfortVignette;
-        hint = settings.comfortVignette ? 'Comfort vignette on' : 'Comfort vignette off';
-        hintTimer = 2.5;
-      }
-      if (press(3, 'stickPress')) {
-        flight.setRate(1);
-        hint = 'Speed reset';
-        hintTimer = 1.5;
+        // A and X start, pause and restart.  The trigger used to do this too,
+        // and cannot any more: it is the throttle now, and a control that both
+        // pauses the world and accelerates it is a control that will pause the
+        // world every time you try to accelerate.
+        if (press(4, 'a')) {
+          if (flight.state.finished) restart();
+          else if (!flight.state.running && flight.state.clock === 0) {
+            flight.start();
+            startDelay = 0;
+          } else flight.toggle();
+          hint = '';
+        }
+        if (press(5, 'b')) {
+          settings.comfortVignette = !settings.comfortVignette;
+          hint = settings.comfortVignette ? 'Comfort vignette on' : 'Comfort vignette off';
+          hintTimer = 2.5;
+        }
       }
     }
 
-    // Push forward to speed up, pull back to slow down or rewind.  Dead-zoned,
-    // and squared so small pushes are gentle.
-    if (Math.abs(stick) > 0.15) {
-      const t = (Math.abs(stick) - 0.15) / 0.85;
-      const magnitude = t * t;
-      const rate = stick > 0 ? 1 + magnitude * 4 : 1 - magnitude * 3.2;
-      flight.setRate(rate);
-    } else if (Math.abs(flight.state.rate - 1) > 0.01) {
-      flight.setRate(flight.state.rate + (1 - flight.state.rate) * Math.min(dt * 3, 1));
+    // Squeezing from a standstill means go.  Having to press a separate button
+    // first, while already holding the throttle down, would be absurd.
+    if (throttle > 0.02 && !flight.state.running && !flight.state.finished) {
+      flight.start();
+      startDelay = 0;
+      setChrome(false);
+    }
+
+    flight.setControl(throttle, brake);
+  }
+
+  /**
+   * Continuous rumble in both controllers.  WebXR only offers one-shot pulses,
+   * so this re-fires a short one several times a second; the duration overlaps
+   * the next call so it does not gap.
+   */
+  let hapticTimer = 0;
+  function updateHaptics(dt, intensity) {
+    hapticTimer -= dt;
+    if (hapticTimer > 0) return;
+    hapticTimer = 0.1;
+    const xrSession = renderer.xr.getSession();
+    if (!xrSession || intensity < 0.03) return;
+    for (const source of xrSession.inputSources) {
+      const actuator = source.gamepad?.hapticActuators?.[0];
+      if (actuator && typeof actuator.pulse === 'function') {
+        actuator.pulse(Math.min(intensity, 1), 140);
+      }
     }
   }
 
@@ -303,7 +339,16 @@ async function main() {
     }
     if (event.code === 'KeyR') restart();
     if (event.code === 'KeyH') setAllText(!textVisible);
+    // No analog input on a keyboard, so shift is simply the trigger buried.
+    if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') keys.throttle = 1;
+    if (event.code === 'KeyZ') keys.brake = 1;
   });
+  window.addEventListener('keyup', (event) => {
+    if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') keys.throttle = 0;
+    if (event.code === 'KeyZ') keys.brake = 0;
+  });
+  // A window that loses focus mid-pull would otherwise keep the throttle open.
+  window.addEventListener('blur', () => { keys.throttle = 0; keys.brake = 0; });
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -375,6 +420,8 @@ async function main() {
     },
     /** Force the comfort vignette on so a still frame can show what it does;
      * the real toggle is a controller button and there is no controller here. */
+    /** Drive the throttle from a test, since there is no trigger here. */
+    setThrottle(value) { keys.throttle = value; return keys.throttle; },
     setVignette(enabled) {
       settings.comfortVignette = enabled;
       return settings.comfortVignette;
@@ -432,6 +479,11 @@ async function main() {
     stats() {
       return {
         flightClock: Number(flight.state.clock.toFixed(2)),
+        throttle: Number(flight.state.throttle.toFixed(3)),
+        rate: Number(flight.state.rate.toFixed(2)),
+        buffet: Number(flight.buffet().toFixed(3)),
+        headOffsetMm: Number((head.position.x * 1e6).toFixed(2)),
+        pitchDegPerSec: Number((flight.state.pitchRate * 180 / Math.PI).toFixed(2)),
         hudVisible: hud.group.visible,
         vignetteStrength: Number(vignette.material.uniforms.uStrength.value.toFixed(3)),
         textVisible,
@@ -461,7 +513,7 @@ async function main() {
     const dt = Math.min(clock.getDelta(), 0.1);
     const elapsed = clock.elapsedTime;
 
-    readInput(dt);
+    readInput();
     if (startDelay > 0 && startDelay !== Infinity) {
       startDelay -= dt;
       if (startDelay <= 0) {
@@ -478,6 +530,28 @@ async function main() {
     // the terrain's business, so the flight profile is measured from there.
     rig.position.set(0, groundHeight + altitude, 0);
     pivot.rotation.x = -pitch;
+
+    // --- buffet --------------------------------------------------------------
+    // The air shaking you, at ten to twenty hertz, biggest around fourteen
+    // kilometres and gone once there is no air left to do it.  Almost all of it
+    // is translation: a few millimetres of jitter reads as vibration, whereas
+    // the same amount of rotation reads as the world moving and is the single
+    // most reliable way to make someone ill.  There is a whisper of rotation
+    // for texture, and the comfort setting halves the lot.
+    const buffet = override.active ? 0 : flight.buffet();
+    const shakeScale = settings.comfortVignette ? 0.5 : 1.0;
+    const shake = buffet * shakeScale * 0.0000038;      // km, so ~3.8 mm
+    const twist = buffet * shakeScale * 0.0016;         // radians, so ~0.09 deg
+    head.position.set(
+      shake * (Math.sin(elapsed * 61.7) * 0.6 + Math.sin(elapsed * 97.3) * 0.4),
+      -HEAD_HEIGHT + shake * (Math.sin(elapsed * 73.1) * 0.6 + Math.sin(elapsed * 113.7) * 0.4),
+      shake * (Math.sin(elapsed * 83.9) * 0.5 + Math.sin(elapsed * 127.1) * 0.5)
+    );
+    head.rotation.set(
+      twist * Math.sin(elapsed * 88.3),
+      twist * Math.sin(elapsed * 104.9),
+      twist * Math.sin(elapsed * 71.3)
+    );
 
     // --- level of detail across nine orders of magnitude --------------------
     terrain.uniforms.uDetailFade.value = 1 - smoothstep(9, 26, altitude);
@@ -520,7 +594,6 @@ async function main() {
     const xrCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
 
     if (!renderer.xr.isPresenting) {
-      head.rotation.set(0, 0, 0);
       camera.rotation.set(look.pitch, look.yaw, 0, 'YXZ');
     }
 
@@ -541,10 +614,14 @@ async function main() {
       altitude,
       climbRate: flight.state.climbRate,
       hint,
+      throttle: flight.state.throttle,
     });
     vignette.update(dt, flight.comfort(), settings.comfortVignette);
 
-    audio.update(altitude, flight.state.climbRate);
+    audio.update(altitude, flight.state.climbRate, flight.state.throttle, buffet);
+    // Both hands rumble with the airframe, plus a floor from the engine itself
+    // so that full throttle still has weight once the air has gone.
+    updateHaptics(dt, buffet * 0.85 + flight.state.throttle * 0.2);
 
     renderer.render(scene, camera);
   });

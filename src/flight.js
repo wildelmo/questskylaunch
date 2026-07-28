@@ -92,11 +92,18 @@ export function createFlight() {
     FLIGHT.pitch.map(({ t, deg }) => ({ t, value: (deg * Math.PI) / 180 }))
   );
 
+  const MAX_PITCH_RATE = (FLIGHT.maxPitchRate * Math.PI) / 180;
+
   const state = {
-    /** Seconds along the profile.  Not wall-clock: scrubbing changes the rate. */
+    /** Seconds along the profile.  Not wall-clock: the throttle changes the rate. */
     clock: 0,
     running: false,
     rate: 1,
+    /** Commanded and actual throttle, 0..1.  The gap between them is the spool. */
+    throttleInput: 0,
+    throttle: 0,
+    brakeInput: 0,
+    brake: 0,
     altitude: 0,
     climbRate: 0,
     pitch: 0,
@@ -105,17 +112,25 @@ export function createFlight() {
     finished: false,
   };
 
-  function sample() {
+  function sampleAltitude() {
     const [altitude, climbRate] = spline.at(state.clock);
     state.altitude = altitude;
     state.climbRate = climbRate * state.rate;
+  }
 
-    const [pitch, pitchSlope] = pitchSpline.at(state.clock);
-    state.pitch = pitch;
-    state.pitchRate = pitchSlope * state.rate;
+  function sample() {
+    sampleAltitude();
+    state.pitch = pitchSpline.at(state.clock)[0];
+    state.pitchRate = 0;
   }
 
   sample();
+
+  /** Exponential approach with separate rise and fall constants. */
+  function approach(current, target, dt, attack, release) {
+    const tau = target > current ? attack : release;
+    return current + (target - current) * (1 - Math.exp(-dt / Math.max(tau, 1e-3)));
+  }
 
   return {
     state,
@@ -135,22 +150,71 @@ export function createFlight() {
     restart() {
       state.clock = 0;
       state.rate = 1;
+      state.throttle = 0;
+      state.throttleInput = 0;
+      state.brake = 0;
+      state.brakeInput = 0;
       state.finished = false;
       state.running = true;
       sample();
     },
 
-    /** Thumbstick scrubbing: forward speeds up, back slows and can reverse. */
+    /**
+     * Throttle and brake, each 0..1, from whatever the user is holding.
+     * Applied on the next update so the spool-up is framerate independent.
+     */
+    setControl(throttle, brake) {
+      state.throttleInput = Math.min(Math.max(throttle, 0), 1);
+      state.brakeInput = Math.min(Math.max(brake, 0), 1);
+    },
+
+    /** Direct rate override, used by the inspection hook. */
     setRate(rate) {
-      state.rate = Math.min(Math.max(rate, -3), 6);
+      state.rate = Math.min(Math.max(rate, -FLIGHT.maxBrake), FLIGHT.maxThrottle);
     },
 
     update(dt) {
+      state.throttle = approach(
+        state.throttle, state.throttleInput, dt, FLIGHT.throttleAttack, FLIGHT.throttleRelease);
+      state.brake = approach(
+        state.brake, state.brakeInput, dt, FLIGHT.throttleRelease, FLIGHT.throttleRelease);
+
+      // Hands off sits at 1: the ride runs itself at the pace it was composed
+      // for, and the throttle is something you add to it rather than something
+      // you have to hold down to make anything happen at all.
+      state.rate = 1
+        + state.throttle * (FLIGHT.maxThrottle - 1)
+        - state.brake * (1 + FLIGHT.maxBrake);
+
       if (state.running) {
         state.clock = Math.min(Math.max(state.clock + dt * state.rate, 0), spline.duration);
         state.finished = state.clock >= spline.duration;
       }
-      sample();
+      sampleAltitude();
+
+      // Attitude follows the profile but is rate limited, so no amount of
+      // throttle can spin you faster than is comfortable.  It lags and catches
+      // up instead, which reads as the nose swinging round a moment late.
+      const target = pitchSpline.at(state.clock)[0];
+      const step = Math.min(Math.max(target - state.pitch, -MAX_PITCH_RATE * dt), MAX_PITCH_RATE * dt);
+      state.pitch += step;
+      state.pitchRate = dt > 0 ? step / dt : 0;
+    },
+
+    /**
+     * Aerodynamic buffet, 0..1 — how hard the air is hitting you.
+     *
+     * Proportional to speed times the square root of air density, which is the
+     * usual proxy for how much the airframe is being shaken.  It is what drives
+     * the shake, the roar and the haptics, and it means all three peak together
+     * around fourteen kilometres and then die away as the air runs out, which
+     * is where a real launch has max Q and why the ride there genuinely does go
+     * quiet.  Nothing about that had to be arranged: it falls out of the
+     * profile and the scale height.
+     */
+    buffet() {
+      const density = Math.exp(-Math.max(state.altitude, 0) / 8.0);
+      return Math.min((Math.abs(state.climbRate) * Math.sqrt(density)) / 8.0, 1);
     },
 
     /**
