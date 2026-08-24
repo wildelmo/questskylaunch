@@ -30,26 +30,20 @@ jobs:
 
       - run: npm ci
 
+      - name: Physics sanity checks
+        run: npm test
+
       - name: Build
         run: npm run build
 
       - name: Check the bundle came out whole
-        # The textures and the star catalogue are the experience; a build that
-        # silently dropped them would still deploy and still load, and would
-        # just show an empty black sky.
+        # Everything is procedural, so the bundle is just the page and its
+        # JavaScript — but a build that silently dropped the JS would still
+        # deploy and show a black screen.
         run: |
           set -eu
-          for f in \
-            dist/index.html \
-            dist/data/stars.bin \
-            dist/textures/earth_albedo_8k.jpg \
-            dist/textures/earth_albedo_4k.jpg \
-            dist/textures/earth_night_4k.jpg \
-            dist/textures/earth_clouds_4k.jpg \
-            dist/textures/earth_surface_4k.jpg
-          do
-            test -s "$f" || { echo "missing or empty: $f"; exit 1; }
-          done
+          test -s dist/index.html || { echo "missing dist/index.html"; exit 1; }
+          ls dist/assets/*.js >/dev/null 2>&1 || { echo "no JS bundle in dist/assets"; exit 1; }
           echo "bundle: $(du -sh dist | cut -f1)"
 
       - uses: actions/configure-pages@v5

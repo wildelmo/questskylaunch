@@ -1,103 +1,126 @@
-// Headless smoke test.  Serves the built site in a real Chromium with a real
-// (software) GL driver, drives the flight to a list of altitudes and saves a
-// frame at each one.  Shader compile errors, NaNs and black frames all show up
-// here, which beats discovering them with a headset on your face.
-
-import { chromium } from 'playwright';
-import { createServer } from 'node:http';
+// Browser smoke test: serve the built bundle, load it in headless Chromium,
+// and make sure the garden is actually alive — rendering frames, planets
+// orbiting, mouse grab-and-throw working. Run `npm run build` first, then:
+//   node tools/smoke.mjs [--shots <dir>]
+import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { extname, join } from 'node:path';
+import { chromium } from 'playwright-core';
 
-const ROOT = fileURLToPath(new URL('../dist', import.meta.url));
-const OUT = process.env.SMOKE_OUT || '/tmp/skylaunch-smoke';
+const dist = new URL('../dist', import.meta.url).pathname;
+const shotsDir = process.argv.includes('--shots')
+  ? process.argv[process.argv.indexOf('--shots') + 1] : null;
 
-const TYPES = {
-  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
-  '.jpg': 'image/jpeg', '.png': 'image/png', '.bin': 'application/octet-stream',
-};
-
-const server = createServer(async (req, res) => {
+const mime = { '.html': 'text/html', '.js': 'text/javascript', '.svg': 'image/svg+xml' };
+const server = http.createServer(async (req, res) => {
+  const path = req.url === '/' ? '/index.html' : req.url.split('?')[0];
   try {
-    let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (path === '/') path = '/index.html';
-    const file = join(ROOT, normalize(path).replace(/^(\.\.[/\\])+/, ''));
-    const body = await readFile(file);
-    res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream' });
-    res.end(body);
+    const data = await readFile(join(dist, path));
+    res.writeHead(200, { 'content-type': mime[extname(path)] ?? 'application/octet-stream' });
+    res.end(data);
   } catch {
     res.writeHead(404).end('not found');
   }
 });
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const url = `http://127.0.0.1:${server.address().port}/`;
 
-await new Promise((resolve) => server.listen(0, resolve));
-const port = server.address().port;
+let failures = 0;
+const check = (name, ok, detail = '') => {
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  (${detail})` : ''}`);
+  if (!ok) failures++;
+};
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: [
-    '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
-    '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox',
-  ],
+  executablePath: '/opt/pw-browsers/chromium',
+  args: ['--no-sandbox', '--use-angle=swiftshader'],
 });
-
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 
-const problems = [];
-page.on('console', (message) => {
-  const text = message.text();
-  if (message.type() === 'error' || /ERROR|error:|undeclared|not found|failed/i.test(text)) {
-    problems.push(`[${message.type()}] ${text}`);
-  }
+const errors = [];
+page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+page.on('pageerror', (e) => errors.push(String(e)));
+
+await page.goto(url);
+// Software GL can be slow; wait on rendered frames, not wall-clock time.
+await page.waitForFunction(() => window.__gg?.renderer.info.render.frame > 15, null, { timeout: 60000 });
+
+check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
+
+const state = await page.evaluate(() => {
+  const { sim, renderer } = window.__gg;
+  return {
+    bodies: sim.bodies.length,
+    finite: sim.bodies.every((b) =>
+      Number.isFinite(b.pos.x) && Number.isFinite(b.vel.x)),
+    calls: renderer.info.render.calls,
+  };
 });
-page.on('pageerror', (error) => problems.push(`[pageerror] ${error.message}`));
-page.on('response', (r) => { if (r.status() >= 400) problems.push(`[http ${r.status()}] ${r.url()}`); });
+check('starter system present', state.bodies === 3, `${state.bodies} bodies`);
+check('all positions/velocities finite', state.finite);
+check('scene has draw calls', state.calls > 10, `${state.calls} calls`);
 
-await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
-await page.waitForFunction(() => window.__skylaunch !== undefined, { timeout: 180000 });
-await page.waitForFunction(() => window.__skylaunch.ready === true, { timeout: 180000 });
+// Fast-forward until a revolution completes — proves gravity, orbit tracking,
+// and the note trigger path all run in the real page.
+await page.evaluate(() => { window.__gg.sim.timeScale = 6; });
+await page.waitForFunction(
+  () => window.__gg.sim.bodies.reduce((n, b) => n + b.orbits, 0) >= 1,
+  null, { timeout: 60000 });
+await page.evaluate(() => { window.__gg.sim.timeScale = 1; });
+check('a planet completed an orbit under time acceleration', true);
 
-const shots = process.env.SMOKE_SHOTS
-  ? JSON.parse(process.env.SMOKE_SHOTS)
-  : [
-      { name: '00-ground', alt: 0, pitch: 0, look: [0, 0] },
-      { name: '01-ground-up', alt: 0, pitch: 0, look: [0, 0.35] },
-      { name: '02-120m', alt: 0.12, pitch: 0.25 },
-      { name: '03-2km', alt: 2.0, pitch: 0.55 },
-      { name: '04-14km', alt: 14, pitch: 0.9 },
-      { name: '05-45km', alt: 45, pitch: 1.1 },
-      { name: '06-110km', alt: 110, pitch: 1.2 },
-      { name: '07-400km', alt: 400, pitch: 1.256 },
-      { name: '08-1200km', alt: 1200, pitch: 1.256 },
-      { name: '09-6000km', alt: 6000, pitch: 1.256 },
-      { name: '10-30000km', alt: 30000, pitch: 1.256 },
-    ];
+if (shotsDir) await page.screenshot({ path: join(shotsDir, 'garden-1-load.png') });
 
-for (const shot of shots) {
-  if (shot.uniform) console.log('  setUniform ->', await page.evaluate((u) => window.__skylaunch.setUniform(u[0], u[1]), shot.uniform));
-  if (shot.debug) await page.evaluate((n) => window.__skylaunch.debugMaterial(n), shot.debug);
-  if (shot.hide) console.log('  hide ->', await page.evaluate((names) => names.map((n) => window.__skylaunch.show(n, false)), shot.hide));
-  if (shot.showAgain) await page.evaluate((names) => names.forEach((n) => window.__skylaunch.show(n, true)), shot.showAgain);
-  await page.evaluate((s) => window.__skylaunch.pose(s), shot);
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: `${OUT}/${shot.name}.png` });
-  const s = await page.evaluate(() => window.__skylaunch.stats());
-  console.log(`${shot.name.padEnd(14)} draws=${s.drawCalls} tris=${s.triangles}`);
+// Grab the inner planet with the mouse and hurl it: body count must hold and
+// nothing may be left stuck to the pointer afterwards.
+const screenPos = await page.evaluate(() => {
+  const { sim, camera } = window.__gg;
+  const v = sim.bodies[0].pos.clone().project(camera);
+  return {
+    x: (v.x * 0.5 + 0.5) * window.innerWidth,
+    y: (-v.y * 0.5 + 0.5) * window.innerHeight,
+  };
+});
+await page.mouse.move(screenPos.x, screenPos.y);
+await page.mouse.down();
+await page.waitForTimeout(80);
+// swing it across the screen over a few events so velocity smoothing sees it
+for (let i = 1; i <= 6; i++) {
+  await page.mouse.move(screenPos.x + i * 40, screenPos.y - i * 6);
+  await page.waitForTimeout(30);
 }
+await page.mouse.up();
+await page.waitForTimeout(400);
 
-const stats = await page.evaluate(() => window.__skylaunch.stats());
-console.log('stats:', JSON.stringify(stats));
-console.log('props:', JSON.stringify(await page.evaluate(() => window.__skylaunch.inspect()), null, 1));
-const probe = await page.evaluate(() => window.__skylaunch.probe());
-console.log('luts:', JSON.stringify(probe, (k, v) => typeof v === 'number' ? Number(v.toPrecision(4)) : v));
+const after = await page.evaluate(() => {
+  const { sim } = window.__gg;
+  return {
+    bodies: sim.bodies.length,
+    vel: sim.bodies[0] ? Math.hypot(sim.bodies[0].vel.x, sim.bodies[0].vel.y, sim.bodies[0].vel.z) : 0,
+    held: sim.bodies.some((b) => b.held),
+  };
+});
+check('throw kept the garden intact', after.bodies >= 2, `${after.bodies} bodies`);
+check('nothing left stuck in hand', !after.held);
+
+// Keyboard toggles.
+await page.keyboard.press('t');
+await page.keyboard.press('2');
+await page.keyboard.press('2');
+const toggles = await page.evaluate(() => ({
+  trails: window.__gg.garden.trailsOn,
+  ts: window.__gg.sim.timeScale,
+}));
+check('T toggled trails off', toggles.trails === false);
+check('2 sped up time', toggles.ts > 2, `×${toggles.ts.toFixed(2)}`);
+
+await page.waitForTimeout(1200);
+if (shotsDir) await page.screenshot({ path: join(shotsDir, 'garden-2-after-throw.png') });
+
+const finalErrors = errors.length;
+check('still no errors after interaction', finalErrors === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
 server.close();
-
-if (problems.length) {
-  console.log(`\n${problems.length} problem(s):`);
-  for (const p of [...new Set(problems)].slice(0, 40)) console.log('  ' + p);
-  process.exitCode = 1;
-} else {
-  console.log('\nno console errors');
-}
+console.log(failures === 0 ? '\nsmoke: all good ✓' : `\nsmoke: ${failures} failure(s)`);
+process.exit(failures === 0 ? 0 : 1);

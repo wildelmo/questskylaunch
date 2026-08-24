@@ -1,116 +1,72 @@
-// Every distance in this project is in kilometres unless a name says otherwise.
-// One scene unit == 1 km.  That keeps the planet, the atmosphere and a blade of
-// grass in the same coordinate system without ever running out of float
-// precision in a place where it matters: near the ground we only ever look at
-// the low bits, and from orbit only the high ones.
+// Every number worth arguing about lives here.
+//
+// Units are real-world metres and seconds — the garden is a tabletop system
+// about a metre across, hanging in front of you at chest height. Masses are
+// stored premultiplied by G (so `gm` is in m³/s²) and gravity is just
+// a = gm / d². The sun's gm is tuned so a gentle underhand toss at half a
+// metre out gives a stable orbit with a period of a few seconds, and a hard
+// throw escapes.
 
-export const KM = 1.0;
-export const METRE = 0.001;
-
-export const PLANET = {
-  // Mean Earth radius.  The imagery is equirectangular over a sphere, so a
-  // spheroid would only buy us a lie we cannot see.
-  radius: 6371.0,
-  atmosphereTop: 6471.0, // 100 km, the Karman line, where the sky is done
+export const SUN = {
+  pos: [0, 1.25, -1.05],  // tabletop height, just out of arm's reach
+  radius: 0.13,
+  gm: 0.45,               // circular speed at r=0.5 m ≈ 0.95 m/s
+  growPerMeal: 1.035,     // gm multiplier each time it eats a planet
+  radiusPerMeal: 1.022,
+  mealsToNova: 8,
 };
 
-// Where you are standing when the experience begins.  The western slope of the
-// Sierra Nevada above the San Joaquin Valley: 660 m up, real mountains 30 km to
-// the east, a flat valley 30 km to the west and the Pacific coast 250 km beyond
-// that — so the ascent hands you a horizon, then a coastline, then a continent,
-// then a planet, roughly one every twenty seconds.
-export const LAUNCH_SITE = {
-  latitude: 36.95,
-  longitude: -119.35,
-  // Compass bearing you face at t=0.  Looking south-south-east down the line of
-  // the Sierra foothills: the range climbs away on your left, the Central
-  // Valley opens on your right, and the afternoon sun is off your right
-  // shoulder so the land is side-lit instead of flattened by glare.  Once you
-  // are a hundred kilometres up this is the view that hands you California,
-  // then the coastline, then the whole west of the continent.
-  heading: 155,
-  eyeHeight: 1.7 * METRE,
+export const PHYSICS = {
+  substep: 1 / 240,        // fixed integration step (seconds, sim time)
+  maxSubsteps: 24,         // cap per rendered frame so slow frames can't spiral
+  soften: 0.02,            // gravitational softening length (m)
+  escapeRadius: 7,         // beyond this a body has left the garden
+  maxBodies: 42,
+  planetDensity: 25,       // gm = density * radius³ — subtle planet-planet pull
 };
 
-// Sun position is derived from a real date and time so the terminator, the
-// shadow lengths and the colour of the light all agree with each other.
-// 2024-06-21 22:38 UTC == mid-afternoon at the launch site on the solstice.
-export const EPOCH = {
-  dayOfYear: 173,
-  utcHours: 22.63,
+// The three seed sizes on the nursery stand.
+export const SEED_RADII = [0.021, 0.034, 0.052];
+
+export const THROW = {
+  velocityScale: 0.95,     // released velocity = smoothed hand velocity * this
+  grabRadius: 0.13,        // how close a hand must be to pick something up
+  smoothFrames: 6,         // frames of position history for release velocity
 };
 
-export const FLIGHT = {
-  // Altitude waypoints, in km, reached at the given times in seconds.
-  //
-  // The pacing is built around where the Earth actually is at each height.  It
-  // swells to fill your entire field of view somewhere around 300-800 km and
-  // starts shrinking again past 3,000, so the run lingers hardest in that band
-  // and only then pulls back for the whole-disc view.
-  keyframes: [
-    { t: 0, alt: 0 },
-    { t: 5, alt: 0.05 },
-    { t: 11, alt: 0.8 },
-    { t: 18, alt: 4.0 },
-    { t: 26, alt: 14.0 },
-    { t: 34, alt: 42.0 },     // above the weather, sky going indigo
-    { t: 44, alt: 110.0 },    // Karman line; the black arrives
-    { t: 56, alt: 260.0 },
-    { t: 70, alt: 520.0 },    // Earth is everything you can see
-    { t: 86, alt: 1100.0 },
-    { t: 104, alt: 2600.0 },  // the horizon closes into a full circle
-    { t: 124, alt: 6200.0 },
-    { t: 148, alt: 14000.0 },
-    { t: 176, alt: 18000.0 }, // blue marble: a 30-degree disc, still an object
-                              // you could reach out and hold rather than a dot
-  ],
-  // You leave the ground upright and rotate back-first onto your stomach, so
-  // the planet swings around from beneath your feet to straight ahead of you
-  // and then falls away.  Degrees nose-down from the horizon, against the same
-  // clock as the altitude, and never faster than about one degree a second --
-  // slow enough to read as drifting rather than as being spun.
-  //
-  // It keeps going gently past the point where the planet fills your view,
-  // because once the disc starts shrinking again it needs to be centred rather
-  // than sitting low, and 90 degrees is exactly nose-down at the planet.
-  pitch: [
-    { t: 0, deg: 0 },
-    { t: 7, deg: 0 },
-    { t: 40, deg: 38 },
-    { t: 66, deg: 72 },
-    { t: 120, deg: 82 },
-    { t: 176, deg: 87 },
-  ],
-
-  // --- throttle -------------------------------------------------------------
-  // Hands off, you get the ride described above.  Buried, you get a rocket.
-  //
-  // The multiplier is on the profile clock, so it speeds up the climb, the
-  // pitch-over and everything derived from them at once.  Ten is about as far
-  // as it is worth going: the whole ascent collapses to eighteen seconds and
-  // the ground is gone before you have registered leaving it.
-  maxThrottle: 10.0,
-  // Full brake runs the clock backwards, so you can stop and hang there, or
-  // come back down for another look at something.
-  maxBrake: 3.0,
-  // Seconds to spool up and back down.  Slow enough to feel like mass moving
-  // rather than like a number changing.
-  throttleAttack: 0.55,
-  throttleRelease: 0.40,
-  // However hard you pull, you are never rotated faster than this.  The
-  // pitch-over runs on the same clock as the altitude, so at ten times speed it
-  // would otherwise swing you through eighty degrees in seven seconds, which is
-  // the one part of this that could genuinely make someone ill.  Past the
-  // limit the attitude simply lags the profile and catches up later.
-  maxPitchRate: 4.5, // degrees per second
+export const TIME = {
+  min: 0.15,
+  max: 6,
+  stickRate: 2.2,          // exponential rate for thumbstick time control
 };
 
-export const QUALITY = {
-  // Fragment cost of the sky is the whole ballgame on a standalone headset, so
-  // the ray-march step count floats with measured frame time.
-  skyStepsMin: 14,
-  skyStepsMax: 40,
-  targetFrameMs: 12.5, // 72 Hz with headroom for the compositor
-  framebufferScale: 1.0,
-  foveation: 0.6,
+export const TRAIL = {
+  points: 220,             // ring buffer length per planet
+  minStep: 0.008,          // metres moved before a new point is recorded
 };
+
+export const PREDICT = {
+  steps: 340,              // how far ahead the held-planet ghost arc looks
+  dt: 0.02,                // seconds of sim time per prediction step
+};
+
+export const NURSERY = {
+  pos: [-0.62, 1.0, -0.62],
+  spacing: 0.16,
+  respawnDelay: 1.4,       // seconds before a taken seed grows back
+};
+
+export const LAYOUT = {
+  platformRadius: 1.5,
+  panelPos: [0.92, 1.42, -0.72],
+  panelTilt: -0.55,        // radians of yaw toward the player
+};
+
+// Pastel-vivid planet palette; a hue is picked at random per seed.
+export const PLANET_COLORS = [
+  0xff6b6b, 0xffd93d, 0x6bcb77, 0x4d96ff, 0xb980f0,
+  0xff9f68, 0x5ad1cd, 0xf473b9, 0xc9d64f, 0x8ea6ff,
+];
+
+// A-minor pentatonic, low to high — small planets sing higher.
+export const SCALE_HZ = [220.0, 261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 659.26];
