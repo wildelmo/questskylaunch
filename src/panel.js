@@ -4,7 +4,7 @@ import { LAYOUT } from './config.js';
 // A floating glass card that teaches the controls and shows live stats.
 // It's one canvas texture, redrawn only when something it shows changes.
 
-const W = 640, H = 780;
+const W = 640, H = 830;
 
 export class InfoPanel {
   constructor(scene) {
@@ -79,13 +79,15 @@ export class InfoPanel {
       ['GRAB', 'trigger, grip, or a pinch'],
       ['THROW', 'your speed becomes its orbit'],
       ['HOLD', 'shows the path it will take'],
+      ['BOTH HANDS', 'grip space — zoom, pan, turn'],
+      ['STICKS click', 'both at once: reset the view'],
       ['R-STICK ↑↓', 'time faster / slower'],
       ['A', 'trails on / off'],
       ['B', 'pause / resume'],
       ['X', 'clear all planets'],
       ['Y', 'hide this panel'],
     ];
-    let y = 214;
+    let y = 208;
     for (const [key, desc] of rows) {
       g.fillStyle = '#67d7ff';
       g.font = '600 26px "Segoe UI", system-ui, sans-serif';
@@ -93,18 +95,18 @@ export class InfoPanel {
       g.fillStyle = 'rgba(235, 242, 255, 0.92)';
       g.font = '26px "Segoe UI", system-ui, sans-serif';
       g.fillText(desc, 244, y);
-      y += 46;
+      y += 42;
     }
 
     line(g, 40, y - 10, W - 40, y - 10);
 
     // Lore
     g.fillStyle = 'rgba(255, 217, 160, 0.9)';
-    g.font = 'italic 25px Georgia, serif';
+    g.font = 'italic 24px Georgia, serif';
     g.textAlign = 'center';
-    g.fillText('every completed orbit plays a note', W / 2, y + 38);
-    g.fillText('the sun eats whatever falls in —', W / 2, y + 74);
-    g.fillText(`feed it ${this.stats.mealsToNova} and see what happens`, W / 2, y + 110);
+    g.fillText('soft throws bend into orbit · hurl hard to escape', W / 2, y + 34);
+    g.fillText('every completed orbit plays a note', W / 2, y + 68);
+    g.fillText(`the sun eats what falls in — feed it ${this.stats.mealsToNova}`, W / 2, y + 102);
 
     // Live stats
     const fed = this.stats.meals;

@@ -72,36 +72,55 @@ check('a planet completed an orbit under time acceleration', true);
 if (shotsDir) await page.screenshot({ path: join(shotsDir, 'garden-1-load.png') });
 
 // Grab the inner planet with the mouse and hurl it: body count must hold and
-// nothing may be left stuck to the pointer afterwards.
-const screenPos = await page.evaluate(() => {
-  const { sim, camera } = window.__gg;
-  const v = sim.bodies[0].pos.clone().project(camera);
-  return {
-    x: (v.x * 0.5 + 0.5) * window.innerWidth,
-    y: (-v.y * 0.5 + 0.5) * window.innerHeight,
-  };
-});
-await page.mouse.move(screenPos.x, screenPos.y);
-await page.mouse.down();
-await page.waitForTimeout(80);
-// swing it across the screen over a few events so velocity smoothing sees it
-for (let i = 1; i <= 6; i++) {
-  await page.mouse.move(screenPos.x + i * 40, screenPos.y - i * 6);
-  await page.waitForTimeout(30);
+// nothing may be left stuck to the pointer afterwards. Projecting the MESH's
+// world position keeps this valid under any garden transform.
+async function dragThrow() {
+  const screenPos = await page.evaluate(() => {
+    const { sim, camera } = window.__gg;
+    const v = sim.bodies[0].mesh.getWorldPosition(sim.bodies[0].pos.clone()).project(camera);
+    return {
+      x: (v.x * 0.5 + 0.5) * window.innerWidth,
+      y: (-v.y * 0.5 + 0.5) * window.innerHeight,
+    };
+  });
+  await page.mouse.move(screenPos.x, screenPos.y);
+  await page.mouse.down();
+  await page.waitForTimeout(80);
+  for (let i = 1; i <= 6; i++) {
+    await page.mouse.move(screenPos.x + i * 40, screenPos.y - i * 6);
+    await page.waitForTimeout(30);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  return page.evaluate(() => ({
+    bodies: window.__gg.sim.bodies.length,
+    held: window.__gg.sim.bodies.some((b) => b.held),
+    finite: window.__gg.sim.bodies.every((b) => Number.isFinite(b.pos.x)),
+  }));
 }
-await page.mouse.up();
-await page.waitForTimeout(400);
 
-const after = await page.evaluate(() => {
-  const { sim } = window.__gg;
-  return {
-    bodies: sim.bodies.length,
-    vel: sim.bodies[0] ? Math.hypot(sim.bodies[0].vel.x, sim.bodies[0].vel.y, sim.bodies[0].vel.z) : 0,
-    held: sim.bodies.some((b) => b.held),
-  };
-});
-check('throw kept the garden intact', after.bodies >= 2, `${after.bodies} bodies`);
+const after = await dragThrow();
+check('throw kept the garden intact', after.bodies >= 2 && after.finite, `${after.bodies} bodies`);
 check('nothing left stuck in hand', !after.held);
+
+// Same again with the garden scaled, shifted and turned — the world-grip
+// coordinate path. Grabbing must still work, then '0' resets the view.
+await page.evaluate(() => {
+  const g = window.__gg.gardenGroup;
+  g.scale.setScalar(0.6);
+  g.position.set(0.25, -0.1, 0.15);
+  g.rotation.y = 0.5;
+  g.updateMatrixWorld(true);
+});
+const scaled = await dragThrow();
+check('grab-throw works in a transformed garden', scaled.bodies >= 2 && scaled.finite && !scaled.held,
+  `${scaled.bodies} bodies`);
+await page.keyboard.press('0');
+const viewReset = await page.evaluate(() => {
+  const g = window.__gg.gardenGroup;
+  return g.scale.x === 1 && g.position.length() === 0;
+});
+check("'0' reset the garden view", viewReset);
 
 // Keyboard toggles.
 await page.keyboard.press('t');

@@ -31,7 +31,28 @@ export const SEED_RADII = [0.021, 0.034, 0.052];
 export const THROW = {
   velocityScale: 0.95,     // released velocity = smoothed hand velocity * this
   grabRadius: 0.13,        // how close a hand must be to pick something up
-  smoothFrames: 6,         // frames of position history for release velocity
+  smoothFrames: 8,         // frames of position history for release velocity
+};
+
+// Orbit assist: a bare hand is fast, and untuned throws all escaped. The
+// throw's direction is always yours, but its speed is softly capped just
+// under the local escape speed — so a casual toss bends into an orbit, and
+// only a deliberate hurl (over `yeet` × escape speed) actually leaves.
+export const ASSIST = {
+  cap: 0.9,
+  yeet: 2.0,
+};
+
+// Two-handed world grip: pinch or grip empty space with both hands to scale,
+// pan, and turn the whole garden. Your platform stays put under your feet.
+export const GRIP = {
+  minScale: 0.35,
+  maxScale: 2.5,
+};
+
+export const MOONS = {
+  minRadius: 0.03,
+  chance: 0.4,
 };
 
 export const TIME = {

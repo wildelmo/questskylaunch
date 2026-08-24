@@ -3,7 +3,10 @@ import { SUN, PHYSICS, LAYOUT, PLANET_COLORS, SEED_RADII } from './config.js';
 import { Sim } from './physics.js';
 import { GardenAudio } from './audio.js';
 import { makeStarfield, makeSun, makePlatform } from './cosmos.js';
-import { makePlanetMesh, addRing, disposePlanetMesh, Trail, Nursery } from './planets.js';
+import {
+  makePlanetMesh, animatePlanetMesh, addRing, disposePlanetMesh, Trail, Nursery,
+} from './planets.js';
+import { buildTexturePool, ARCHETYPES } from './textures.js';
 import { InfoPanel } from './panel.js';
 import { Interactions } from './interact.js';
 
@@ -33,36 +36,46 @@ scene.add(new THREE.HemisphereLight(0x33415e, 0x05060d, 0.5));
 
 const starfield = makeStarfield();
 scene.add(starfield);
-const sunState = makeSun();
-scene.add(sunState.group);
 scene.add(makePlatform(LAYOUT.platformRadius));
+
+// Everything the player can pick up — sun, planets, trails, nursery — lives
+// in this group, so the two-handed world grip can scale, pan and turn it all
+// at once. The platform, stars and UI stay fixed for comfort.
+const gardenGroup = new THREE.Group();
+scene.add(gardenGroup);
+
+buildTexturePool();
+
+const sunState = makeSun();
+gardenGroup.add(sunState.group);
 
 // ---- the garden -----------------------------------------------------------------
 
 // Owns the sim plus everything visual that hangs off it: planet meshes,
 // trails, the nursery, and the little deaths and celebrations.
 class Garden {
-  constructor(audio) {
+  constructor(audio, group) {
     this.audio = audio;
+    this.group = group;
     this.sim = new Sim();
-    this.nursery = new Nursery(scene);
+    this.nursery = new Nursery(group);
     this.trails = new Map();   // body -> Trail
     this.dying = [];           // meshes shrinking out of existence
     this.trailsOn = true;
 
-    this.sim.onOrbit = (body) => this.audio.orbitNote(body.pos, body.radius);
+    this.sim.onOrbit = (body) => this.audio.orbitNote(this.worldOf(body.pos), body.radius);
 
     this.sim.onMerge = (removed, survivor) => {
       this.removeVisuals(removed);
       survivor.mesh.scale.setScalar(survivor.radius);
       if (survivor.hasRing) addRing(survivor.mesh, survivor.colorIndex);
       this.trailOf(survivor)?.reset();
-      this.audio.merge(survivor.pos, survivor.radius);
+      this.audio.merge(this.worldOf(survivor.pos), survivor.radius);
     };
 
     this.sim.onEat = (body) => {
       this.removeVisuals(body, true);
-      this.audio.sunEat(body.pos);
+      this.audio.sunEat(this.worldOf(body.pos));
       sunState.eat();
       sunState.setRadius(this.sim.sun.radius);
       if (this.sim.sun.meals >= SUN.mealsToNova) this.nova();
@@ -74,11 +87,16 @@ class Garden {
     };
   }
 
+  // Garden-space point -> world, for spatial audio.
+  worldOf(pos) {
+    return this.group.localToWorld(_w.copy(pos));
+  }
+
   nova() {
     // The sun gives back everything it was fed, all at once.
     sunState.nova();
     this.sim.blast(0.5);
-    this.audio.nova(this.sim.sun.pos);
+    this.audio.nova(this.worldOf(this.sim.sun.pos));
     this.sim.sun.gm = SUN.gm;
     this.sim.sun.radius = SUN.radius;
     this.sim.sun.meals = 0;
@@ -86,30 +104,31 @@ class Garden {
     for (const grabber of interactions?.grabbers ?? []) grabber.pulse(0.8, 220);
   }
 
-  addPlanet(pos, vel, radius, colorIndex, mesh = null) {
+  addPlanet(pos, vel, radius, colorIndex, mesh = null, archetype = undefined) {
     // Make room: the oldest free planet quietly leaves.
     if (this.sim.bodies.length >= PHYSICS.maxBodies) {
       const oldest = this.sim.bodies.find((b) => !b.held);
       if (oldest) { this.sim.remove(oldest); this.removeVisuals(oldest); }
     }
     const body = this.sim.addBody(pos, vel, radius, colorIndex);
-    body.mesh = mesh ?? makePlanetMesh(radius, colorIndex);
+    body.mesh = mesh ?? makePlanetMesh(radius, colorIndex, archetype);
     body.mesh.position.copy(pos);
     if (body.hasRing) addRing(body.mesh, colorIndex);
-    scene.add(body.mesh);
+    this.group.add(body.mesh);
 
     const trail = new Trail(PLANET_COLORS[colorIndex % PLANET_COLORS.length]);
     trail.line.visible = this.trailsOn;
     this.trails.set(body, trail);
-    scene.add(trail.line);
+    this.group.add(trail.line);
     return body;
   }
 
   // A nursery seed becomes a real (held) planet, reusing the orb's mesh.
   plantSeed(slot) {
-    this.nursery.orbWorldPos(slot, _v1); // capture before take() detaches it
+    this.nursery.orbWorldPos(slot, _v1); // world pos, captured before take()
+    this.group.worldToLocal(_v1);
     const { mesh, radius, colorIndex } = this.nursery.take(slot);
-    scene.add(mesh);
+    this.group.add(mesh);
     mesh.position.copy(_v1);
     mesh.scale.setScalar(radius);
     return this.addPlanet(_v1, _zero, radius, colorIndex, mesh);
@@ -122,13 +141,13 @@ class Garden {
   removeVisuals(body, immediate = false) {
     const trail = this.trails.get(body);
     if (trail) {
-      scene.remove(trail.line);
+      trail.line.parent?.remove(trail.line);
       trail.dispose();
       this.trails.delete(body);
     }
     if (!body.mesh) return;
     if (immediate) {
-      scene.remove(body.mesh);
+      body.mesh.parent?.remove(body.mesh);
       disposePlanetMesh(body.mesh);
     } else {
       this.dying.push({ mesh: body.mesh, life: 0.35, scale: body.mesh.scale.x });
@@ -155,17 +174,19 @@ class Garden {
     }
   }
 
+  resetView() {
+    this.group.position.set(0, 0, 0);
+    this.group.quaternion.identity();
+    this.group.scale.setScalar(1);
+    this.group.updateMatrixWorld(true);
+  }
+
   update(dt, t) {
     for (const body of this.sim.bodies) {
       const mesh = body.mesh;
       if (!mesh) continue;
       mesh.position.copy(body.pos);
-      const spin = mesh.userData.spin;
-      if (spin) {
-        mesh.rotation.x += spin.x * dt;
-        mesh.rotation.y += spin.y * dt;
-        mesh.rotation.z += spin.z * dt;
-      }
+      animatePlanetMesh(mesh, dt);
       if (this.trailsOn && !body.held && !this.sim.paused) {
         this.trails.get(body)?.push(body.pos);
       }
@@ -174,7 +195,7 @@ class Garden {
       const d = this.dying[i];
       d.life -= dt;
       if (d.life <= 0) {
-        scene.remove(d.mesh);
+        d.mesh.parent?.remove(d.mesh);
         disposePlanetMesh(d.mesh);
         this.dying.splice(i, 1);
       } else {
@@ -186,10 +207,11 @@ class Garden {
 }
 
 const _v1 = new THREE.Vector3();
+const _w = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 
 const audio = new GardenAudio();
-const garden = new Garden(audio);
+const garden = new Garden(audio, gardenGroup);
 const sim = garden.sim;
 const panel = new InfoPanel(scene);
 
@@ -200,6 +222,7 @@ const actions = {
   togglePause: () => { sim.paused = !sim.paused; audio.click(); },
   clearPlanets: () => garden.clearPlanets(),
   togglePanel: () => { panel.toggle(); audio.click(); },
+  resetView: () => { garden.resetView(); audio.click(); },
 };
 
 const interactions = new Interactions({
@@ -210,17 +233,18 @@ const interactions = new Interactions({
 
 function seedStarterSystem() {
   const sunPos = sim.sun.pos;
-  const place = (r, theta, speedMul, radius, colorIndex, tiltY = 0) => {
+  const place = (r, theta, speedMul, radius, colorIndex, archetype, tiltY = 0) => {
     const pos = new THREE.Vector3(
       sunPos.x + r * Math.cos(theta), sunPos.y + tiltY, sunPos.z + r * Math.sin(theta));
     const v = sim.circularSpeed(r) * speedMul;
     const vel = new THREE.Vector3(-Math.sin(theta), (Math.random() - 0.5) * 0.1, Math.cos(theta))
       .normalize().multiplyScalar(v);
-    return garden.addPlanet(pos, vel, radius, colorIndex);
+    return garden.addPlanet(pos, vel, radius, colorIndex, null, archetype);
   };
-  place(0.42, 0.8, 1.0, SEED_RADII[1], 3);          // a steady blue year
-  place(0.66, 3.6, 1.16, SEED_RADII[0], 7, 0.06);   // a small pink comet of a thing
-  const ringed = place(0.98, 2.2, 0.98, SEED_RADII[2], 1);
+  // A blue marble, a small red world on an eccentric path, a ringed giant.
+  place(0.42, 0.8, 1.0, SEED_RADII[1], 3, ARCHETYPES[0]);
+  place(0.66, 3.6, 1.16, SEED_RADII[0], 7, ARCHETYPES[3], 0.06);
+  const ringed = place(0.98, 2.2, 0.98, SEED_RADII[2], 1, ARCHETYPES[5]);
   ringed.hasRing = true;
   addRing(ringed.mesh, ringed.colorIndex);
 }
@@ -234,21 +258,23 @@ const hint = document.getElementById('hint');
 
 renderer.xr.setReferenceSpaceType('local-floor');
 
+const noVR = () => {
+  enterBtn.classList.add('unsupported');
+  enterBtn.textContent = 'VR NOT AVAILABLE HERE';
+  hint.textContent = 'Open this page in the browser on a Meta Quest to step inside — or play with the mouse: drag planets to throw them, scroll to zoom.';
+};
+
 if (navigator.xr?.isSessionSupported) {
   navigator.xr.isSessionSupported('immersive-vr').then((ok) => {
     if (ok) {
       enterBtn.disabled = false;
       enterBtn.textContent = 'ENTER VR';
     } else {
-      enterBtn.classList.add('unsupported');
-      enterBtn.textContent = 'VR NOT AVAILABLE HERE';
-      hint.textContent = 'Open this page in the browser on a Meta Quest to step inside — or play with the mouse: drag planets to throw them, scroll to zoom.';
+      noVR();
     }
-  }).catch(() => {});
+  }).catch(noVR);
 } else {
-  enterBtn.classList.add('unsupported');
-  enterBtn.textContent = 'VR NOT AVAILABLE HERE';
-  hint.textContent = 'Open this page in the browser on a Meta Quest to step inside — or play with the mouse: drag planets to throw them, scroll to zoom.';
+  noVR();
 }
 
 enterBtn.addEventListener('click', async () => {
@@ -331,4 +357,4 @@ window.addEventListener('resize', () => {
 });
 
 // A debug handle for automated smoke tests (and the curious).
-window.__gg = { sim, garden, renderer, camera };
+window.__gg = { sim, garden, renderer, camera, gardenGroup, interactions };

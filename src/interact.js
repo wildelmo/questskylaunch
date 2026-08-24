@@ -1,23 +1,31 @@
 import * as THREE from 'three';
-import { THROW, TIME, PREDICT, SUN } from './config.js';
+import { THROW, TIME, PREDICT, SUN, ASSIST, GRIP } from './config.js';
 import { setShellState } from './planets.js';
 
-// Grabbing, throwing, and steering time — for XR controllers, tracked hands,
-// and (on a flat screen) the mouse. All three are the same Grabber underneath:
-// a world-space point with a velocity history and maybe a held body.
+// Grabbing, throwing, steering time, and gripping space itself — for XR
+// controllers, tracked hands, and (on a flat screen) the mouse. All three are
+// the same Grabber underneath: a point with a velocity history and maybe a
+// held body.
 //
-// While a body is held, its future path under gravity is integrated every
-// frame and drawn as a ghost arc — this is how you aim an orbit.
+// The garden lives inside a transform group the player can scale, pan and
+// turn, so all grab logic runs in *garden space*: hand poses arrive in world
+// coordinates and are converted immediately. While a body is held, its future
+// path under gravity is integrated every frame and drawn as a ghost arc —
+// with orbit assist applied, so the arc never lies about the throw.
 
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 class Grabber {
   constructor() {
     this.active = false;
-    this.pos = new THREE.Vector3();
-    this.history = [];           // {p: Vector3, t: seconds}
+    this.worldPos = new THREE.Vector3(); // raw hand/pointer pose
+    this.pos = new THREE.Vector3();      // same point in garden space
+    this.history = [];                   // {p: garden-space Vector3, t: seconds}
     this.held = null;
     this.holdOffset = new THREE.Vector3();
     this.pressCount = 0;
@@ -49,18 +57,27 @@ export class Interactions {
     this.camera = camera;
     this.scene = scene;
     this.sim = sim;
-    this.garden = garden;
+    this.garden = garden;       // garden.group is the transform we grip
     this.audio = audio;
     this.actions = actions;
-    this.clockTime = 0;
     this.hovered = new Set();
     this.predictBuf = new Float32Array(PREDICT.steps * 3);
+    this.grip = null;           // active two-handed world grip, or null
+    this.resetLatch = false;
 
     this.grabbers = [new Grabber(), new Grabber(), new Grabber()]; // L, R, mouse
     this.mouseGrabber = this.grabbers[2];
 
     this.setupXR();
     this.setupDesktop(dom);
+  }
+
+  toGarden(v) {
+    return this.garden.group.worldToLocal(v);
+  }
+
+  gardenScale() {
+    return this.garden.group.scale.x;
   }
 
   // ---- XR input -------------------------------------------------------------
@@ -132,7 +149,7 @@ export class Interactions {
       this.hands.push({ hand, jointMesh });
     }
 
-    // Ghost arcs, one per hand plus one for the mouse.
+    // Ghost arcs, one per hand plus one for the mouse — drawn in garden space.
     this.predictLines = this.grabbers.map(() => {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PREDICT.steps * 3), 3));
@@ -143,14 +160,14 @@ export class Interactions {
       }));
       line.frustumCulled = false;
       line.visible = false;
-      this.scene.add(line);
+      this.garden.group.add(line);
       return line;
     });
   }
 
   // ---- grabbing ---------------------------------------------------------------
 
-  grabPoint(grabber, out) {
+  grabPointWorld(grabber, out) {
     const src = grabber.inputSource;
     if (src?.hand && grabber.hand) {
       const tip = grabber.hand.joints['index-finger-tip'];
@@ -161,17 +178,20 @@ export class Interactions {
         return out.addVectors(_v1, _v2).multiplyScalar(0.5);
       }
     }
-    return grabber.grip ? grabber.grip.getWorldPosition(out) : out.copy(grabber.pos);
+    return grabber.grip ? grabber.grip.getWorldPosition(out) : out.copy(grabber.worldPos);
   }
 
-  // Nearest free planet or nursery seed within reach of a point.
+  // Nearest free planet or nursery seed within reach of a garden-space point.
+  // Reach grows as the garden shrinks, so a zoomed-out garden is still easy
+  // to pick from.
   findGrabbable(p) {
+    const reach = THROW.grabRadius / this.gardenScale();
     let best = null;
     let bestDist = Infinity;
     for (const body of this.sim.bodies) {
       if (body.held) continue;
       const d = p.distanceTo(body.pos) - body.radius;
-      if (d < THROW.grabRadius && d < bestDist) {
+      if (d < reach && d < bestDist) {
         best = { kind: 'planet', body };
         bestDist = d;
       }
@@ -179,8 +199,9 @@ export class Interactions {
     for (const slot of this.garden.nursery.slots) {
       if (!slot.mesh || slot.growth < 0.5) continue;
       this.garden.nursery.orbWorldPos(slot, _v3);
+      this.toGarden(_v3);
       const d = p.distanceTo(_v3) - slot.radius;
-      if (d < THROW.grabRadius && d < bestDist) {
+      if (d < reach && d < bestDist) {
         best = { kind: 'seed', slot };
         bestDist = d;
       }
@@ -200,7 +221,8 @@ export class Interactions {
       grabber.holdOffset.set(0, 0, 0);
     } else {
       body = target.body;
-      grabber.holdOffset.subVectors(body.pos, grabber.pos).clampLength(0, 0.05);
+      grabber.holdOffset.subVectors(body.pos, grabber.pos)
+        .clampLength(0, 0.05 / this.gardenScale());
       this.garden.trailOf(body)?.reset();
     }
     body.held = true;
@@ -210,13 +232,25 @@ export class Interactions {
     grabber.pulse(0.35, 40);
   }
 
+  // The velocity a body would leave the hand with right now: smoothed hand
+  // velocity, scaled, then bent by orbit assist — capped just under the local
+  // escape speed unless the throw is an unmistakable hurl.
+  throwVelocity(grabber, pos, out) {
+    grabber.velocity(out).multiplyScalar(THROW.velocityScale).clampLength(0, 5);
+    const speed = out.length();
+    const esc = this.sim.escapeSpeedAt(pos);
+    if (speed > esc * ASSIST.cap && speed < esc * ASSIST.yeet) {
+      out.setLength(esc * ASSIST.cap);
+    }
+    return out;
+  }
+
   release(grabber, silent = false) {
     const body = grabber.held;
     grabber.held = null;
     if (!body || !body.alive) return;
     body.held = false;
-    grabber.velocity(_v1).multiplyScalar(THROW.velocityScale);
-    body.vel.copy(_v1.clampLength(0, 4));
+    this.throwVelocity(grabber, body.pos, body.vel);
     body.acc.set(0, 0, 0);
     this.garden.trailOf(body)?.reset();
     setShellState(body.mesh, 'none');
@@ -229,16 +263,29 @@ export class Interactions {
   // ---- per-frame --------------------------------------------------------------
 
   update(dt, t, inXR) {
-    this.clockTime = t;
-
+    // 1. Raw world poses for the XR hands.
     for (let i = 0; i < 2; i++) {
       const grabber = this.grabbers[i];
       if (!grabber.active) continue;
-      this.grabPoint(grabber, grabber.pos);
-      grabber.recordHistory(t);
-      this.pollGamepad(grabber, dt);
+      this.grabPointWorld(grabber, grabber.worldPos);
     }
-    if (this.mouseGrabber.active) this.mouseGrabber.recordHistory(t);
+
+    // 2. Two-handed world grip — may move/scale/turn the garden group.
+    this.updateWorldGrip();
+
+    // 3. Everything below runs in garden space.
+    for (const grabber of this.grabbers) {
+      if (!grabber.active) continue;
+      grabber.pos.copy(grabber.worldPos);
+      this.toGarden(grabber.pos);
+      if (this.grip) grabber.history.length = 0; // space itself is moving
+      else grabber.recordHistory(t);
+    }
+
+    for (let i = 0; i < 2; i++) {
+      if (this.grabbers[i].active) this.pollGamepad(this.grabbers[i], dt);
+    }
+    this.checkViewReset();
 
     // Carry held bodies, keep their velocity live for gravity and prediction.
     for (const grabber of this.grabbers) {
@@ -252,6 +299,60 @@ export class Interactions {
     this.updateHover();
     this.updatePredictions();
     this.updateHandJoints(inXR);
+  }
+
+  // Both hands pressed on empty space: grab the fabric of the garden itself.
+  // Separation scales it, the midpoint drags it, the hand-to-hand bearing
+  // turns it. The platform under the player never moves.
+  updateWorldGrip() {
+    const [gL, gR] = this.grabbers;
+    const eligible = (g) => g.active && g.pressCount > 0 && !g.held;
+    const group = this.garden.group;
+
+    if (!(eligible(gL) && eligible(gR))) {
+      if (this.grip) {
+        this.grip = null;
+        this.audio.click();
+      }
+      return;
+    }
+
+    const d = Math.max(0.05, gL.worldPos.distanceTo(gR.worldPos));
+    _v1.addVectors(gL.worldPos, gR.worldPos).multiplyScalar(0.5); // midpoint M
+    _v2.subVectors(gR.worldPos, gL.worldPos);
+    const bearing = Math.atan2(_v2.x, _v2.z);
+
+    if (!this.grip) {
+      this.grip = {
+        d0: d,
+        s0: group.scale.x,
+        q0: group.quaternion.clone(),
+        a0: bearing,
+        anchor: this.toGarden(_v3.copy(_v1)).clone(), // garden point under M
+      };
+      this.audio.grab();
+      gL.pulse(0.25, 30);
+      gR.pulse(0.25, 30);
+      return;
+    }
+
+    const g = this.grip;
+    const s = Math.min(GRIP.maxScale, Math.max(GRIP.minScale, g.s0 * (d / g.d0)));
+    _q.setFromAxisAngle(Y_AXIS, bearing - g.a0);
+    group.quaternion.multiplyQuaternions(_q, g.q0);
+    group.scale.setScalar(s);
+    // Keep the grabbed garden point pinned under the moving midpoint.
+    _v3.copy(g.anchor).multiplyScalar(s).applyQuaternion(group.quaternion);
+    group.position.subVectors(_v1, _v3);
+    group.updateMatrixWorld(true);
+  }
+
+  checkViewReset() {
+    // Clicking both thumbsticks at once puts the garden back where it started.
+    const down = (g) => !!g.inputSource?.gamepad?.buttons[3]?.pressed;
+    const both = down(this.grabbers[0]) && down(this.grabbers[1]);
+    if (both && !this.resetLatch) this.actions.resetView();
+    this.resetLatch = both;
   }
 
   updateHover() {
@@ -278,7 +379,7 @@ export class Interactions {
       const body = grabber.held;
       if (!body) { line.visible = false; continue; }
 
-      grabber.velocity(_v1).multiplyScalar(THROW.velocityScale).clampLength(0, 4);
+      this.throwVelocity(grabber, body.pos, _v1);
       const { count, hitSun } = this.sim.predict(body.pos, _v1, body, this.predictBuf);
       const attr = line.geometry.getAttribute('position');
       attr.array.set(this.predictBuf.subarray(0, count * 3));
@@ -375,7 +476,9 @@ export class Interactions {
         this.dragPlane.setFromNormalAndCoplanarPoint(
           this.camera.getWorldDirection(_v2), _v1);
         this.mouseGrabber.active = true;
+        this.mouseGrabber.worldPos.copy(_v1);
         this.mouseGrabber.pos.copy(_v1);
+        this.toGarden(this.mouseGrabber.pos);
         this.mouseGrabber.history.length = 0;
         this.mouseGrabber.pressCount = 1;
         this.tryGrab(this.mouseGrabber);
@@ -392,7 +495,7 @@ export class Interactions {
         toPointer(e);
         this.raycaster.setFromCamera(this.pointer, this.camera);
         if (this.raycaster.ray.intersectPlane(this.dragPlane, _v1)) {
-          this.mouseGrabber.pos.copy(_v1);
+          this.mouseGrabber.worldPos.copy(_v1);
         }
       } else if (this.orbit.dragging) {
         this.orbit.theta -= e.movementX * 0.005;
@@ -423,6 +526,7 @@ export class Interactions {
       if (e.key === 'p' || e.key === 'P' || e.key === ' ') this.actions.togglePause();
       if (e.key === 'c' || e.key === 'C') this.actions.clearPlanets();
       if (e.key === 'h' || e.key === 'H') this.actions.togglePanel();
+      if (e.key === '0') this.actions.resetView();
       if (e.key === '1') this.sim.timeScale = Math.max(TIME.min, this.sim.timeScale / 1.5);
       if (e.key === '2') this.sim.timeScale = Math.min(TIME.max, this.sim.timeScale * 1.5);
     });
@@ -440,5 +544,3 @@ export class Interactions {
     this.camera.lookAt(o.pivot);
   }
 }
-
-const _m = new THREE.Matrix4();

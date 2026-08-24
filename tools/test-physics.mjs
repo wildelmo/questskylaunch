@@ -122,7 +122,31 @@ function stepSeconds(sim, seconds) {
   check('blast imparts outward velocity', body.vel.x > 0.4);
 }
 
-// ---- 7. held bodies are kinematic but still attract ---------------------------------
+// ---- 7. the orbit-assist boundary is real physics -----------------------------------
+// A tangential release at 0.9 × escape speed (what assist caps to) must stay
+// bound; the same throw at 2.1 × escape must leave.
+
+{
+  const sim = new Sim();
+  const r = 0.5;
+  const start = () => sim.sun.pos.clone().add(new THREE.Vector3(r, 0, 0));
+  const esc = sim.escapeSpeedAt(start());
+  check('escape speed matches sqrt(2GM/r)',
+    Math.abs(esc - Math.sqrt(2 * sim.sun.gm / r)) < 1e-12, `${esc.toFixed(3)} m/s`);
+
+  let gone = 0;
+  sim.onEscape = () => gone++;
+  sim.onEat = () => gone++;
+  sim.addBody(start(), new THREE.Vector3(0, 0, esc * 0.9), 0.021, 0);
+  stepSeconds(sim, 32); // longer than the big ellipse's period
+  check('capped throw stays bound through a full ellipse', gone === 0 && sim.bodies.length === 1);
+
+  sim.addBody(start(), new THREE.Vector3(0, 0, esc * 2.1), 0.021, 0);
+  stepSeconds(sim, 10);
+  check('a real hurl still escapes', gone === 1);
+}
+
+// ---- 8. held bodies are kinematic but still attract ---------------------------------
 
 {
   const sim = new Sim();

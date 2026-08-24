@@ -213,6 +213,13 @@ export class Sim {
   circularSpeed(r) {
     return Math.sqrt(this.sun.gm / r);
   }
+
+  // Escape speed relative to the sun at a point — the reference for orbit
+  // assist: released below this, a body is bound and must come back.
+  escapeSpeedAt(pos) {
+    const r = Math.max(this.sun.radius, pos.distanceTo(this.sun.pos));
+    return Math.sqrt(2 * this.sun.gm / r);
+  }
 }
 
 const _predP = new THREE.Vector3();
