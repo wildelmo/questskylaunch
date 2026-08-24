@@ -9,7 +9,18 @@ and it turns out to be everything. While you hold a planet, a ghost arc shows
 the exact path it will take when you let go, so you can aim an ellipse the way
 you'd aim a paper aeroplane. Gravity is really simulated (velocity Verlet,
 sun + planet-planet attraction), so orbits precess, close pairs capture each
-other, and a careless toss falls into the sun.
+other, and a careless toss falls into the sun. Orbit assist keeps throws
+honest but kind: your direction is always yours, but the speed is softly
+capped just under local escape velocity, so a casual toss bends into an orbit
+and only a deliberate hurl actually leaves the garden.
+
+The planets are worlds. Each seed grows into one of nine procedural
+archetypes — blue marbles with drifting cloud decks and ice caps, rusty Mars
+types, banded gas giants with translucent rings, cracked ice worlds, lava
+worlds veined with glowing rock — and some carry tiny moons on tilted orbits.
+Pinch or grip empty space with both hands to grab the fabric of the garden
+itself: spread them to zoom, drag to pan, turn them to rotate the whole
+system (your platform never moves; click both thumbsticks to reset the view).
 
 Which is fine, because **the sun eats what falls in** — and grows. Feed it
 eight planets and it goes nova: a shockwave that hurls your whole garden
@@ -35,6 +46,8 @@ the only dependency.
 | **Trigger / grip** (or **pinch**, with hand tracking) | grab a seed or a planet |
 | **Throw** | your release velocity becomes its orbit |
 | **Hold** | see the predicted path |
+| **Both hands on empty space** | grip the garden — zoom, pan, turn |
+| **Both thumbsticks clicked** | reset the view |
 | **Right stick ↑↓** | time slower / faster (×0.15 – ×6) |
 | **A** | trails on / off |
 | **B** | pause / resume |
@@ -43,7 +56,8 @@ the only dependency.
 
 On a flat screen it degrades gracefully: drag a planet to throw it, drag empty
 space to look around, scroll to zoom, <kbd>T</kbd>/<kbd>Space</kbd>/<kbd>C</kbd>
-and <kbd>1</kbd>/<kbd>2</kbd> for trails, pause, clear, and time.
+and <kbd>1</kbd>/<kbd>2</kbd> for trails, pause, clear, and time;
+<kbd>0</kbd> resets the view.
 
 ## Running it
 
@@ -69,12 +83,14 @@ node tools/smoke.mjs # loads the built app in headless Chromium and pokes it
 src/
   config.js    every tunable number, with the reasoning
   physics.js   the n-body sim: Verlet integration, merges, orbit tracking,
-               trajectory prediction, the nova blast
+               trajectory prediction, orbit assist's escape speed, the nova
+  textures.js  the procedural planet-surface pool: terra, Mars, gas giant,
+               ice, lava, clouds — periodic noise painted onto canvases
   cosmos.js    starfield + milky way + nebulae, the sun shader, the platform
-  planets.js   planet meshes (vertex-noise colouring), atmosphere shells,
-               rings, orbit trails, the seed nursery
+  planets.js   planet meshes, cloud decks, moons, atmosphere shells, rings,
+               orbit trails, the seed nursery
   interact.js  grabbing/throwing for controllers, tracked hands, and mouse;
-               velocity smoothing; the prediction arc; gamepad polling
+               the two-handed world grip; orbit assist; the prediction arc
   audio.js     all sound, synthesized in WebAudio — spatialised notes,
                FM bells, the nova; nothing is a file
   panel.js     the floating help/stats card (canvas texture)
