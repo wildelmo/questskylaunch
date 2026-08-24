@@ -1,20 +1,21 @@
 {
-  "name": "questskylaunch",
+  "name": "gravity-garden",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "A hyper-real WebXR ascent from a field on Earth to high orbit, built for the Meta Quest 3.",
+  "description": "A WebXR orbital sandbox for the Meta Quest: throw planets, grow orbits, feed the sun.",
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host",
-    "assets": "python3 tools/build_assets.py"
+    "test": "node tools/test-physics.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.1.0",
+    "playwright-core": "^1.62.1",
     "vite": "^7.1.5"
   }
 }
