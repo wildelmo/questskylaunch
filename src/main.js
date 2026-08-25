@@ -36,7 +36,17 @@ scene.add(new THREE.HemisphereLight(0x33415e, 0x05060d, 0.5));
 
 const starfield = makeStarfield();
 scene.add(starfield);
-scene.add(makePlatform(LAYOUT.platformRadius));
+const platform = makePlatform(LAYOUT.platformRadius);
+scene.add(platform);
+
+// Mixed reality hides the deep-space scenery and clears to transparent, so
+// the Quest's passthrough camera shows your real room around the garden.
+const spaceBackground = scene.background;
+function setSpaceScenery(visible) {
+  starfield.visible = visible;
+  platform.visible = visible;
+  scene.background = visible ? spaceBackground : null;
+}
 
 // Everything the player can pick up — sun, planets, trails, nursery — lives
 // in this group, so the two-handed world grip can scale, pan and turn it all
@@ -254,9 +264,13 @@ seedStarterSystem();
 
 const overlay = document.getElementById('overlay');
 const enterBtn = document.getElementById('enter-vr');
+const arBtn = document.getElementById('enter-ar');
 const hint = document.getElementById('hint');
 
 renderer.xr.setReferenceSpaceType('local-floor');
+
+// 'vr' fills the sky with stars; 'ar' is passthrough mixed reality.
+let xrMode = 'vr';
 
 const noVR = () => {
   enterBtn.classList.add('unsupported');
@@ -264,37 +278,50 @@ const noVR = () => {
   hint.textContent = 'Open this page in the browser on a Meta Quest to step inside — or play with the mouse: drag planets to throw them, scroll to zoom.';
 };
 
-if (navigator.xr?.isSessionSupported) {
-  navigator.xr.isSessionSupported('immersive-vr').then((ok) => {
-    if (ok) {
-      enterBtn.disabled = false;
-      enterBtn.textContent = 'ENTER VR';
-    } else {
-      noVR();
-    }
-  }).catch(noVR);
-} else {
-  noVR();
+async function supported(mode) {
+  try {
+    return (await navigator.xr?.isSessionSupported?.(mode)) ?? false;
+  } catch {
+    return false;
+  }
 }
 
-enterBtn.addEventListener('click', async () => {
-  if (enterBtn.classList.contains('unsupported')) return;
+(async () => {
+  if (await supported('immersive-vr')) {
+    enterBtn.disabled = false;
+    enterBtn.textContent = 'ENTER VR';
+  } else {
+    noVR();
+  }
+  if (await supported('immersive-ar')) arBtn.classList.add('available');
+})();
+
+async function enterXR(mode) {
   audio.start();
   try {
-    const session = await navigator.xr.requestSession('immersive-vr', {
-      optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
-    });
+    xrMode = mode;
+    const session = await navigator.xr.requestSession(
+      mode === 'ar' ? 'immersive-ar' : 'immersive-vr',
+      { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
     await renderer.xr.setSession(session);
   } catch (err) {
-    console.error('Could not start VR session:', err);
+    xrMode = 'vr';
+    console.error(`Could not start ${mode} session:`, err);
   }
+}
+
+enterBtn.addEventListener('click', () => {
+  if (!enterBtn.classList.contains('unsupported')) enterXR('vr');
 });
+arBtn.addEventListener('click', () => enterXR('ar'));
 
 renderer.xr.addEventListener('sessionstart', () => {
   overlay.classList.add('hidden');
+  setSpaceScenery(xrMode !== 'ar');
   audio.resume();
 });
 renderer.xr.addEventListener('sessionend', () => {
+  setSpaceScenery(true);
   overlay.classList.remove('hidden');
 });
 
@@ -357,4 +384,7 @@ window.addEventListener('resize', () => {
 });
 
 // A debug handle for automated smoke tests (and the curious).
-window.__gg = { sim, garden, renderer, camera, gardenGroup, interactions };
+window.__gg = {
+  sim, garden, renderer, camera, gardenGroup, interactions,
+  setSpaceScenery, starfield, platform,
+};

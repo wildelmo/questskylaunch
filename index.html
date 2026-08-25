@@ -57,29 +57,44 @@
       font-size: 16px;
       color: rgba(160, 200, 255, 0.9);
     }
-    #enter-vr {
+    #buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .xr-btn {
       font: 600 17px/1 'Segoe UI', system-ui, sans-serif;
       letter-spacing: 3px;
       color: #04060f;
       background: linear-gradient(135deg, #9fdcff, #67d7ff);
       border: none;
       border-radius: 12px;
-      padding: 15px 42px;
+      padding: 15px 34px;
       cursor: pointer;
       box-shadow: 0 0 26px rgba(103, 215, 255, 0.45);
       transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
-    #enter-vr:hover:not(:disabled):not(.unsupported) {
+    .xr-btn:hover:not(:disabled):not(.unsupported) {
       transform: translateY(-2px);
       box-shadow: 0 0 40px rgba(103, 215, 255, 0.7);
     }
-    #enter-vr:disabled { opacity: 0.5; cursor: default; }
-    #enter-vr.unsupported {
+    .xr-btn:disabled { opacity: 0.5; cursor: default; }
+    .xr-btn.unsupported {
       background: rgba(103, 215, 255, 0.14);
       color: rgba(160, 200, 255, 0.75);
       box-shadow: none;
       cursor: default;
     }
+    #enter-ar {
+      background: linear-gradient(135deg, #ffd9a0, #ffb865);
+      box-shadow: 0 0 26px rgba(255, 184, 101, 0.45);
+      display: none;
+    }
+    #enter-ar:hover:not(:disabled):not(.unsupported) {
+      box-shadow: 0 0 40px rgba(255, 184, 101, 0.7);
+    }
+    #enter-ar.available { display: inline-block; }
     #hint {
       margin: 16px 0 0;
       font-size: 13.5px;
@@ -98,11 +113,15 @@
     <div id="card">
       <h1>GRAVITY GARDEN</h1>
       <p id="tagline">plant planets &middot; grow orbits &middot; feed the sun</p>
-      <button id="enter-vr" disabled>&hellip;</button>
+      <div id="buttons">
+        <button id="enter-vr" class="xr-btn" disabled>&hellip;</button>
+        <button id="enter-ar" class="xr-btn">MIXED REALITY</button>
+      </div>
       <p id="hint">
-        Best in the Meta Quest browser. On a flat screen: <kbd>drag</kbd> a planet to throw it,
-        <kbd>drag</kbd> space to look, <kbd>scroll</kbd> to zoom,
-        <kbd>T</kbd> trails, <kbd>Space</kbd> pause, <kbd>C</kbd> clear, <kbd>1</kbd>/<kbd>2</kbd> time.
+        Best in the Meta Quest browser — on a Quest&nbsp;3, Mixed Reality floats the garden in your
+        real room. On a flat screen: <kbd>drag</kbd> a planet to throw it, <kbd>drag</kbd> space to
+        look, <kbd>scroll</kbd> to zoom, <kbd>T</kbd> trails, <kbd>Space</kbd> pause,
+        <kbd>C</kbd> clear, <kbd>1</kbd>/<kbd>2</kbd> time.
       </p>
     </div>
   </div>
