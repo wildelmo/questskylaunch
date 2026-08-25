@@ -1,6 +1,6 @@
 {
   "name": "gravity-garden",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "A WebXR orbital sandbox for the Meta Quest: throw planets, grow orbits, feed the sun.",

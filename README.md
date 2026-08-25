@@ -14,6 +14,12 @@ honest but kind: your direction is always yours, but the speed is softly
 capped just under local escape velocity, so a casual toss bends into an orbit
 and only a deliberate hurl actually leaves the garden.
 
+And it doesn't have to happen in deep space. On a Quest 3 (or any headset
+with passthrough), the **Mixed Reality** button floats the same garden in
+your real room — the stars and the platform fade away and the sun burns over
+your coffee table. Grip it with both hands to shrink the whole solar system
+down to a desk ornament, or blow it up to fill the kitchen.
+
 The planets are worlds. Each seed grows into one of nine procedural
 archetypes — blue marbles with drifting cloud decks and ice caps, rusty Mars
 types, banded gas giants with translucent rings, cracked ice worlds, lava

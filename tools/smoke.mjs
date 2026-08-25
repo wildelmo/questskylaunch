@@ -122,6 +122,22 @@ const viewReset = await page.evaluate(() => {
 });
 check("'0' reset the garden view", viewReset);
 
+// Mixed-reality scenery switch: passthrough mode hides the space scenery and
+// clears to transparent. Headless can't start an AR session, but the wiring
+// it flips is directly testable.
+const arScenery = await page.evaluate(() => {
+  const gg = window.__gg;
+  gg.setSpaceScenery(false);
+  const hidden = !gg.starfield.visible && !gg.platform.visible
+    && gg.starfield.parent.background === null;
+  gg.setSpaceScenery(true);
+  const restored = gg.starfield.visible && gg.platform.visible
+    && gg.starfield.parent.background !== null;
+  return { hidden, restored };
+});
+check('AR mode hides space scenery and clears to transparent', arScenery.hidden);
+check('leaving AR restores the sky', arScenery.restored);
+
 // Keyboard toggles.
 await page.keyboard.press('t');
 await page.keyboard.press('2');
