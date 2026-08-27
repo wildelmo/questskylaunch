@@ -4,7 +4,7 @@
 
 import {
   waveComposition, spawnIntervalFor, waveSpeedMul, comboAdvance, comboMultiplier,
-  heatAfterShot, heatCool, canFire, segmentSphereHit, waveClearBonus,
+  heatAfterShot, heatCool, canFire, segmentSphereHit, waveClearBonus, strafeThrough,
 } from '../src/waves.js';
 import { INVASION } from '../src/config.js';
 
@@ -105,6 +105,31 @@ function check(name, ok, detail = '') {
   // Degenerate segment (paused frame): behaves like a point test.
   check('zero-length segment still tests the point',
     segmentSphereHit(1, 1, 1, 1, 1, 1, 1, 1.05, 1, 0.1));
+}
+
+// ---- 5. attack-run geometry: past the mark, off to one side --------------------
+
+{
+  // Ship at origin, mark 2 m ahead on -z: the run ends beyond the mark,
+  // shifted sideways so the ship grazes rather than rams.
+  const [x, y, z] = strafeThrough(0, 1.5, 0, 0, 1.5, -2, 0.14, 0.8, 1);
+  check('run overshoots the mark', z < -2.5, `z=${z.toFixed(2)}`);
+  check('run stays level with a level dive', Math.abs(y - 1.5) < 1e-9);
+  check('run misses to the side by the graze distance', Math.abs(Math.abs(x) - 0.14) < 1e-9,
+    `x=${x.toFixed(2)}`);
+
+  const left = strafeThrough(0, 1.5, 0, 0, 1.5, -2, 0.14, 0.8, -1);
+  check('side sign flips the miss direction', Math.sign(left[0]) !== Math.sign(x));
+
+  // A vertical dive can't cross with 'up': the lateral fallback still
+  // produces a finite, offset point.
+  const vert = strafeThrough(0, 3, 0, 0, 1, 0, 0.14, 0.8, 1);
+  check('vertical dive still yields a finite offset point',
+    vert.every(Number.isFinite) && Math.abs(vert[0]) > 0.1, JSON.stringify(vert));
+
+  // Degenerate: ship exactly on the mark — still finite.
+  const deg = strafeThrough(1, 1, 1, 1, 1, 1, 0.14, 0.8, 1);
+  check('coincident ship and mark still yields a finite point', deg.every(Number.isFinite));
 }
 
 console.log(failures === 0 ? '\ninvasion: all good ✓' : `\n${failures} failure(s)`);

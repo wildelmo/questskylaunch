@@ -76,3 +76,22 @@ export function segmentSphereHit(ax, ay, az, bx, by, bz, cx, cy, cz, r) {
 export function waveClearBonus(n) {
   return INVASION.score.waveClearBase + INVASION.score.waveClearPerWave * n;
 }
+
+// Where an attack run ends: a point `overshoot` metres past the mark along
+// the dive line, pushed `graze` metres sideways (side = ±1) so the ship
+// slices past the mark instead of ramming it. Plain scalars in, [x,y,z] out.
+export function strafeThrough(sx, sy, sz, mx, my, mz, graze, overshoot, side) {
+  let dx = mx - sx, dy = my - sy, dz = mz - sz;
+  const len = Math.hypot(dx, dy, dz);
+  if (len < 1e-6) { dx = 0; dy = 0; dz = -1; } else { dx /= len; dy /= len; dz /= len; }
+  // Lateral = dive direction × up; if the dive is vertical, fall back to x.
+  let lx = -dz, ly = 0, lz = dx;
+  const lateralLen = Math.hypot(lx, lz);
+  if (lateralLen < 1e-6) { lx = 1; ly = 0; lz = 0; }
+  else { lx /= lateralLen; lz /= lateralLen; }
+  return [
+    mx + dx * overshoot + lx * graze * side,
+    my + dy * overshoot + ly * graze * side,
+    mz + dz * overshoot + lz * graze * side,
+  ];
+}

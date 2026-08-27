@@ -374,15 +374,16 @@ export function disposeRift(group) {
 
 // ---- the tractor beam --------------------------------------------------------
 
-// A tapered cone of flowing green light. Unit length along -Y from the
-// origin, so the game can hang it under a harvester and scale y to reach.
-export function makeTractorBeam() {
+// A tapered cone of flowing light. Unit length along -Y from the origin, so
+// the game can hang it under a ship and scale y to reach. Harvesters tow
+// with it in green; stingers telegraph a snatch with a thin magenta one.
+export function makeTractorBeam(colorHex = ENEMY_GLOW.harvester) {
   const geo = new THREE.CylinderGeometry(0.16, 0.5, 1, 12, 1, true);
   geo.translate(0, -0.5, 0);
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
-      uColor: { value: new THREE.Color(ENEMY_GLOW.harvester) },
+      uColor: { value: new THREE.Color(colorHex) },
     },
     vertexShader: /* glsl */`
       varying vec2 vUv;
