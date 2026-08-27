@@ -50,12 +50,19 @@ overheat if you never let go. There are three silhouettes to learn:
 
 - **Stingers** — magenta darts that weave in, snatch seeds off the nursery
   (and pocket-sized planets straight out of orbit), and sprint for a rift.
+  Every theft is telegraphed: the stinger hovers with its grab beam lit for
+  a beat before the snatch lands — that beam is your window to shoot it.
   One bolt kills them. Kill a courier and it *drops its cargo back into the
   garden*, where a lucky trajectory falls into a brand-new orbit.
-- **Harvesters** — armoured green barges that park over your biggest planet,
-  reel it up on a flowing tractor beam, and drag it toward a rift. The
-  planet stays in the sim while it's towed — its gravity still tugs its
+- **Harvesters** — armoured green barges that fly a real intercept on your
+  biggest planet (orbits are faster than they are, so they aim where it's
+  *going*), latch on at beam range, reel it up, and tow it toward a rift.
+  The planet stays in the sim while it's towed — its gravity still tugs its
   siblings on the way out. Six bolts, or one well-thrown planet, set it free.
+- **Attack runs** — a ship with nothing left to steal never loiters: it
+  picks a mark and dives, grazing planets hard enough to rattle their
+  orbits in a shower of sparks — and once in a while the mark it picks is
+  *your head*.
 - **Marauders** — every fourth wave, an ember-red crescent circles the
   garden at range and lobs slow plasma orbs that stun the sun and knock your
   orbits around. The orbs are shootable. So is the marauder, eventually.

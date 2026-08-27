@@ -171,6 +171,32 @@ await page.waitForFunction(
   () => window.__gg.invasion.ships.length > 0, null, { timeout: 30000 });
 check('ships come through the rift', true);
 
+// Watch the wave behave for a while. This guards the two ways the AI has
+// actually failed: ships sharing one velocity object (they all drifted
+// skyward in lockstep), and ships never engaging with anything.
+const behavior = await page.evaluate(async () => {
+  const inv = window.__gg.invasion;
+  const out = { sharedVel: false, maxDist: 0, engaged: false, phases: new Set() };
+  const seen = new Set();
+  for (let i = 0; i < 60; i++) { // ~15 s of observation
+    for (const s of inv.ships) {
+      if (seen.has(s.vel) && !seen.has(s)) out.sharedVel = true;
+      seen.add(s.vel);
+      seen.add(s);
+      out.maxDist = Math.max(out.maxDist, Math.hypot(s.pos.x, s.pos.y - 1.5, s.pos.z));
+      out.phases.add(s.phase);
+      if (['hunt', 'grab', 'strafe', 'tractor', 'flee'].includes(s.phase)) out.engaged = true;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return { ...out, phases: [...out.phases] };
+});
+check('every ship owns its own velocity vector', !behavior.sharedVel);
+check('no ship drifts away from the room', behavior.maxDist < 10,
+  `max ${behavior.maxDist.toFixed(1)}m, phases: ${behavior.phases.join(',')}`);
+check('ships engage the garden (hunt/grab/strafe/tow/flee)', behavior.engaged,
+  behavior.phases.join(','));
+
 if (shotsDir) await page.screenshot({ path: join(shotsDir, 'garden-3-invasion.png') });
 
 // Deterministic kill: park a stinger clear of the garden (an unknown phase
@@ -193,11 +219,51 @@ const killResult = await page.evaluate(async () => {
 check('a bolt kills a stinger', killResult.dead);
 check('the kill scores', killResult.scored && killResult.counted);
 
-// Mouse fire: hold the pointer down on empty sky and check bolts stream out.
+// A harvester must be able to CATCH an orbiting planet — planets are faster
+// than the barge, so this only works while lead pursuit + beam-range latch
+// work. Then killing it must hand the planet back.
+const towResult = await page.evaluate(async () => {
+  const inv = window.__gg.invasion;
+  const { sim, garden } = window.__gg;
+  // The wave so far may have stolen or eaten everything; the barge needs a
+  // planet in orbit to hunt.
+  if (!sim.bodies.length) {
+    const r = 0.6;
+    const pos = sim.sun.pos.clone();
+    pos.x += r;
+    garden.addPlanet(pos, pos.clone().set(0, 0, sim.circularSpeed(r)), 0.04, 2);
+  }
+  const h = inv.debugSpawn('harvester', [1.8, 1.9, 0.6]);
+  h.phase = 'enter';
+  const t0 = performance.now();
+  while (performance.now() - t0 < 35000) {
+    await new Promise((r) => setTimeout(r, 300));
+    if (!inv.ships.includes(h)) return { latched: false, gone: true };
+    if (h.phase === 'tractor') break;
+  }
+  const body = h.target?.body;
+  const latched = h.phase === 'tractor' && !!body?.abducted && !!h.beam?.visible;
+  let released = false;
+  if (latched) {
+    inv.killShip(h, 'shot', null);
+    released = !body.held && !body.abducted && body.alive;
+  }
+  return { latched, released };
+});
+check('a harvester intercepts an orbiting planet and tows it',
+  towResult.latched, JSON.stringify(towResult));
+check('killing the harvester frees the planet', towResult.released);
+
+// Mouse fire: hold the pointer down on empty sky and wait for a stream —
+// a fixed sleep undercounts when software GL drops to a few frames a second.
 await page.mouse.move(200, 200);
 await page.mouse.down();
-await page.waitForTimeout(400);
-const boltsAlive = await page.evaluate(() => window.__gg.invasion.bolts.bolts.length);
+let boltsAlive = 0;
+try {
+  await page.waitForFunction(() => window.__gg.invasion.bolts.bolts.length >= 2,
+    null, { timeout: 8000 });
+  boltsAlive = await page.evaluate(() => window.__gg.invasion.bolts.bolts.length);
+} catch { /* boltsAlive stays under 2 and the check below fails */ }
 await page.mouse.up();
 check('holding the mouse hoses out bolts', boltsAlive >= 2, `${boltsAlive} bolts`);
 

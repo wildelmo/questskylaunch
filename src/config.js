@@ -117,7 +117,7 @@ export const INVASION = {
 
   ships: {
     stinger:   { hp: 1,  hitRadius: 0.11, speed: 1.15, turnRate: 3.4, score: 100 },
-    harvester: { hp: 6,  hitRadius: 0.16, speed: 0.55, turnRate: 1.6, score: 400 },
+    harvester: { hp: 6,  hitRadius: 0.16, speed: 0.55, turnRate: 2.2, score: 400 },
     marauder:  { hp: 14, hitRadius: 0.22, speed: 0.45, turnRate: 1.2, score: 1500 },
   },
   fleeSpeed: 1.9,                 // couriers sprint once they have your world
@@ -134,6 +134,22 @@ export const INVASION = {
     waveClearBase: 200, waveClearPerWave: 50,
     comboWindow: 2.5,             // seconds between kills to keep a combo alive
     comboMax: 5,
+  },
+
+  // How the poachers behave between thefts. Everything here exists to make
+  // their intent readable from across the room: a theft is telegraphed
+  // before it lands, and a ship with nothing to steal runs visible attack
+  // dives instead of loitering.
+  ai: {
+    retarget: 0.35,               // seconds before a thwarted ship re-picks
+    grabTelegraph: 0.85,          // stinger hover-and-beam time before a snatch
+    strafeSpeedMul: 1.6,          // dive speed, relative to cruise
+    strafeOvershoot: 0.8,         // metres flown past the mark before pulling up
+    strafeGraze: 0.14,            // lateral miss distance on a dive (m)
+    strafeTimeout: 4,             // give up on a run that never connects
+    knockSpeed: 0.14,             // impulse a grazed planet takes (m/s, world)
+    knockRadius: 0.2,             // how close a dive must pass to rattle a planet
+    headSwoopChance: 0.2,         // odds a dive buzzes the player instead
   },
 };
 

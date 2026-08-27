@@ -264,10 +264,12 @@ const interactions = new Interactions({
 
 // The game mode: press the beacon (or G) and the poachers come for your
 // worlds. See invasion.js for the whole war.
+const headPos = new THREE.Vector3(0, 1.6, 0); // tracks the camera; see the loop
 invasion = new Invasion({
   scene, sim, garden, audio,
   sunFx: sunState,
   getXRMode: () => xrMode,
+  getHead: (out) => { out.copy(headPos); return true; },
 });
 invasion.bindInput(interactions);
 interactions.bindInvasion({
@@ -391,12 +393,14 @@ renderer.setAnimationLoop(() => {
 
   if (!presenting) interactions.updateDesktopCamera();
 
-  // Keep the ears where the eyes are.
+  // Keep the ears where the eyes are — and tell the invasion where the
+  // player's head is, so ships can buzz it.
   const cam = presenting ? renderer.xr.getCamera() : camera;
   cam.matrixWorld.decompose(_pos, _q, _s);
   _fwd.set(0, 0, -1).applyQuaternion(_q);
   _up.set(0, 1, 0).applyQuaternion(_q);
   audio.updateListener(_pos, _fwd, _up);
+  headPos.copy(_pos);
 
   statTick += dt;
   if (statTick > 0.25) {
