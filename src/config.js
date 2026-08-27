@@ -83,6 +83,60 @@ export const LAYOUT = {
   panelTilt: -0.55,        // radians of yaw toward the player
 };
 
+// The invasion: alien poachers rift in to steal your worlds. Distances are
+// world-space metres — ships fly through the *room*, not the garden group, so
+// in mixed reality they punch through your actual walls. Everything the
+// player does (bolts, aim, heat) runs in real time, unaffected by the sim's
+// timeScale: dodging and aiming are player skills, not garden physics.
+export const INVASION = {
+  beaconPos: [0.62, 1.02, -0.62], // mirrors the nursery, under the info panel
+
+  // Where rifts tear open: a shell around the garden, biased above the floor.
+  spawnRadiusVR: [3.2, 5.2],
+  spawnRadiusAR: [2.2, 3.4],      // passthrough rooms are smaller than space
+  spawnHeight: [0.7, 2.4],
+  maxShips: 6,                    // Quest GPU budget; the queue trickles in
+  maxRifts: 3,
+
+  alarmTime: 2.6,                 // klaxon + first rift tearing open
+  intermission: 7,                // breather between waves
+  spawnInterval: [1.1, 2.6],      // seconds between ships, shrinks with waves
+
+  blaster: {
+    rate: 9,                      // bolts per second while the trigger is down
+    boltSpeed: 7,
+    boltLife: 1.3,                // seconds; ~9 m of range
+    maxBolts: 64,
+    spread: 0.021,                // radians of jitter — a hose, not a rifle
+    assistCone: 0.14,             // radians; bolts bend toward ships this close
+    assistBend: 0.6,              // fraction of the aim error corrected
+    heatPerShot: 0.030,           // ~3.7 s of continuous fire before overheat
+    coolRate: 0.34,               // heat shed per second when not firing
+    resumeBelow: 0.35,            // after an overheat, fire again under this
+  },
+
+  ships: {
+    stinger:   { hp: 1,  hitRadius: 0.11, speed: 1.15, turnRate: 3.4, score: 100 },
+    harvester: { hp: 6,  hitRadius: 0.16, speed: 0.55, turnRate: 1.6, score: 400 },
+    marauder:  { hp: 14, hitRadius: 0.22, speed: 0.45, turnRate: 1.2, score: 1500 },
+  },
+  fleeSpeed: 1.9,                 // couriers sprint once they have your world
+  tractorReel: 1.4,               // seconds to reel a caught planet to the keel
+  stealRadiusMax: 0.036,          // stingers only snatch worlds this small (m)
+  marauderOrbitRadius: 2.1,
+  orbSpeed: 0.55,                 // marauder plasma drifts in slowly — shootable
+  orbEverySeconds: 6.5,
+  orbHitRadius: 0.09,
+  orbKnock: 0.9,                  // impulse a plasma hit gives a planet (m/s)
+
+  score: {
+    orb: 50, swat: 250, rescue: 150,
+    waveClearBase: 200, waveClearPerWave: 50,
+    comboWindow: 2.5,             // seconds between kills to keep a combo alive
+    comboMax: 5,
+  },
+};
+
 // Pastel-vivid planet palette; a hue is picked at random per seed.
 export const PLANET_COLORS = [
   0xff6b6b, 0xffd93d, 0x6bcb77, 0x4d96ff, 0xb980f0,

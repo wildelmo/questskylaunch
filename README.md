@@ -37,6 +37,42 @@ a full orbit it plays a soft pentatonic note from where it is in space —
 plant a few planets at different radii and the garden slowly becomes a
 generative music box.
 
+## The Poachers
+
+Something out there has noticed your garden. Beside the info panel floats a
+small caged ember — the **beacon**. Press it (or <kbd>G</kbd>) and the sky
+answers: violet rifts tear open around you and alien poachers come through
+them, for your worlds.
+
+Your controllers become **ray blasters**. Hold the trigger and they hose out
+laser bolts — nine a second, with a heat vein that runs cyan to red and an
+overheat if you never let go. There are three silhouettes to learn:
+
+- **Stingers** — magenta darts that weave in, snatch seeds off the nursery
+  (and pocket-sized planets straight out of orbit), and sprint for a rift.
+  One bolt kills them. Kill a courier and it *drops its cargo back into the
+  garden*, where a lucky trajectory falls into a brand-new orbit.
+- **Harvesters** — armoured green barges that park over your biggest planet,
+  reel it up on a flowing tractor beam, and drag it toward a rift. The
+  planet stays in the sim while it's towed — its gravity still tugs its
+  siblings on the way out. Six bolts, or one well-thrown planet, set it free.
+- **Marauders** — every fourth wave, an ember-red crescent circles the
+  garden at range and lobs slow plasma orbs that stun the sun and knock your
+  orbits around. The orbs are shootable. So is the marauder, eventually.
+
+Waves escalate and score builds combos — kills within a couple of seconds of
+each other climb a ×2…×5 multiplier that literally plays a rising melody up
+the garden's own pentatonic scale. And the sandbox stays live the whole
+time: grip still grabs, so you can swat ships out of the sky with a planet
+held in your fist, and — the deliberate deep cut — **feed the sun to eight
+during a siege and the nova scours every ship from the sky at once**.
+
+In **Mixed Reality** the invasion is at its best: the rifts open around your
+actual room, and the ships punch straight through your real walls on their
+way to your coffee-table solar system. Best score is remembered between
+sessions. Nobody shoots back — the stakes are your worlds, not your health.
+The siege runs until you press the beacon again and the survivors flee.
+
 **Live:** <https://wildelmo.github.io/questskylaunch/> — open it in the Meta
 Quest Browser and press **Enter VR**. Every push to `main` redeploys it.
 
@@ -59,9 +95,13 @@ the only dependency.
 | **B** | pause / resume |
 | **X** | clear all planets |
 | **Y** | hide the info panel |
+| **The red beacon** | start / end the invasion |
+| **Trigger** (during an invasion) | hold: fire the ray blaster |
+| **Grip** (during an invasion) | still grabs and throws |
 
 On a flat screen it degrades gracefully: drag a planet to throw it, drag empty
-space to look around, scroll to zoom, <kbd>T</kbd>/<kbd>Space</kbd>/<kbd>C</kbd>
+space to look around, scroll to zoom, click to shoot (<kbd>G</kbd> or the
+beacon starts the invasion), <kbd>T</kbd>/<kbd>Space</kbd>/<kbd>C</kbd>
 and <kbd>1</kbd>/<kbd>2</kbd> for trails, pause, clear, and time;
 <kbd>0</kbd> resets the view.
 
@@ -78,9 +118,10 @@ open `https://<your-computer's-LAN-IP>:5173` in the Quest Browser, and accept
 the certificate warning once.
 
 ```bash
-npm test             # physics sanity checks (orbits, merges, conservation)
+npm test             # physics + invasion sanity checks (orbits, merges, waves, heat)
 npm run build        # production bundle in dist/
-node tools/smoke.mjs # loads the built app in headless Chromium and pokes it
+node tools/smoke.mjs # loads the built app in headless Chromium and pokes it —
+                     # including starting an invasion and shooting down a ship
 ```
 
 ## How it's put together
@@ -96,10 +137,19 @@ src/
   planets.js   planet meshes, cloud decks, moons, atmosphere shells, rings,
                orbit trails, the seed nursery
   interact.js  grabbing/throwing for controllers, tracked hands, and mouse;
-               the two-handed world grip; orbit assist; the prediction arc
+               the two-handed world grip; orbit assist; the prediction arc;
+               the trigger's double life as a blaster
+  waves.js     the invasion's pure arithmetic — wave composition, combos,
+               blaster heat, swept-segment hits — testable without a browser
+  ships.js     procedural enemy hulls (stinger / harvester / marauder),
+               rifts, the beacon, the blaster, pooled bolts/debris/popups
+  invasion.js  the war itself: the wave state machine, ship AI that steals
+               seeds and tractors planets, collisions, scoring, the nova sweep
   audio.js     all sound, synthesized in WebAudio — spatialised notes,
-               FM bells, the nova; nothing is a file
-  panel.js     the floating help/stats card (canvas texture)
+               FM bells, the nova, and the invasion's zaps, klaxons and
+               tractor-drones; nothing is a file
+  panel.js     the floating help/stats card (canvas texture); turns into a
+               red scoreboard while the siege is on
   main.js      scene, XR session, the garden orchestration, the loop
 ```
 
@@ -108,3 +158,10 @@ gentle toss at half a metre orbits in about three seconds and a hard throw
 escapes. Everything renderable is budgeted for the Quest's mobile GPU: no
 shadows, no post-processing, one point light, additive sprites for all glow,
 and fixed foveation — a full garden stays comfortably at the native frame rate.
+The invasion keeps the same discipline: at most six ships aloft, every laser
+bolt one instance of a single instanced mesh (with swept-segment collision so
+nothing tunnels), pooled debris and popups, and ship AI that lives in world
+space — which is why, in passthrough, the poachers fly through your walls
+while the garden they're robbing scales freely in your hands. The player's
+side of the fight runs on real time, deliberately outside the sim's
+`timeScale`: slowing the orbits down never slows your bolts.

@@ -205,8 +205,8 @@ export function disposePlanetMesh(mesh) {
 // A fading ribbon of recent positions. Fixed-capacity buffer; when full, the
 // whole array shifts left one slot per new point — trivial cost at this size.
 export class Trail {
-  constructor(colorHex) {
-    this.capacity = TRAIL.points;
+  constructor(colorHex, capacity = TRAIL.points) {
+    this.capacity = capacity;
     this.count = 0;
     this.positions = new Float32Array(this.capacity * 3);
     const colors = new Float32Array(this.capacity * 3);

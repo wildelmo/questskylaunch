@@ -31,6 +31,8 @@ class Grabber {
     this.pressCount = 0;
     this.inputSource = null;
     this.buttonsPrev = [];
+    this.firing = false;                 // trigger-as-blaster, invasion only
+    this.raySpace = null;                // XR target-ray space (aim pose)
   }
 
   recordHistory(t) {
@@ -68,8 +70,19 @@ export class Interactions {
     this.grabbers = [new Grabber(), new Grabber(), new Grabber()]; // L, R, mouse
     this.mouseGrabber = this.grabbers[2];
 
+    // Invasion hooks, bound by main.js once the game mode exists.
+    this.beacon = null;          // the pressable siege beacon (garden space)
+    this.beaconAction = null;
+    this.invasionOn = () => false;
+
     this.setupXR();
     this.setupDesktop(dom);
+  }
+
+  bindInvasion({ beacon, toggle, isActive }) {
+    this.beacon = beacon;
+    this.beaconAction = toggle;
+    this.invasionOn = isActive;
   }
 
   toGarden(v) {
@@ -103,18 +116,30 @@ export class Interactions {
         grabber.inputSource = null;
         grabber.active = false;
         grabber.pressCount = 0;
+        grabber.firing = false;
         visual.visible = false;
       });
 
       // Trigger and grip both grab; hands fire select on system pinch.
+      // During an invasion a controller's trigger is the blaster instead —
+      // grip still grabs, hands still pinch-grab, and a trigger held across
+      // the mode change resolves as whatever it started as.
       const press = () => {
         if (++grabber.pressCount === 1) this.tryGrab(grabber);
       };
       const unpress = () => {
         if (grabber.pressCount > 0 && --grabber.pressCount === 0) this.release(grabber);
       };
-      controller.addEventListener('selectstart', press);
-      controller.addEventListener('selectend', unpress);
+      const blasterHand = () =>
+        this.invasionOn() && grabber.inputSource && !grabber.inputSource.hand;
+      controller.addEventListener('selectstart', () => {
+        if (blasterHand()) grabber.firing = true;
+        else press();
+      });
+      controller.addEventListener('selectend', () => {
+        if (grabber.firing) grabber.firing = false;
+        else unpress();
+      });
       controller.addEventListener('squeezestart', press);
       controller.addEventListener('squeezeend', unpress);
 
@@ -135,6 +160,7 @@ export class Interactions {
 
       grabber.grip = grip;
       grabber.hand = hand;
+      grabber.raySpace = controller;
       this.controllerVisuals.push(visual);
 
       // Tracked hands drawn as constellations of small joint spheres.
@@ -189,10 +215,17 @@ export class Interactions {
     let best = null;
     let bestDist = Infinity;
     for (const body of this.sim.bodies) {
-      if (body.held) continue;
+      if (body.held || body.abducted) continue; // a tractored world is contested by bolts, not hands
       const d = p.distanceTo(body.pos) - body.radius;
       if (d < reach && d < bestDist) {
         best = { kind: 'planet', body };
+        bestDist = d;
+      }
+    }
+    if (this.beacon) {
+      const d = p.distanceTo(this.beacon.position) - 0.06;
+      if (d < reach && d < bestDist) {
+        best = { kind: 'beacon' };
         bestDist = d;
       }
     }
@@ -213,6 +246,12 @@ export class Interactions {
     if (grabber.held) return;
     const target = this.findGrabbable(grabber.pos);
     if (!target) return;
+
+    if (target.kind === 'beacon') {
+      this.beaconAction?.();
+      grabber.pulse(0.6, 90);
+      return;
+    }
 
     let body;
     if (target.kind === 'seed') {
@@ -357,12 +396,15 @@ export class Interactions {
 
   updateHover() {
     const nowHovered = new Set();
+    let beaconHover = false;
     for (const grabber of this.grabbers) {
       if (!grabber.active || grabber.held) continue;
       const target = this.findGrabbable(grabber.pos);
       if (target?.kind === 'planet') nowHovered.add(target.body.mesh);
       else if (target?.kind === 'seed' && target.slot.mesh) nowHovered.add(target.slot.mesh);
+      else if (target?.kind === 'beacon') beaconHover = true;
     }
+    this.beacon?.userData.setHover(beaconHover ? 1 : 0);
     for (const mesh of this.hovered) {
       if (!nowHovered.has(mesh)) setShellState(mesh, 'none');
     }
@@ -465,13 +507,20 @@ export class Interactions {
       this.raycaster.setFromCamera(this.pointer, this.camera);
 
       const meshes = [];
-      for (const body of this.sim.bodies) if (!body.held && body.mesh) meshes.push(body.mesh);
+      for (const body of this.sim.bodies) {
+        if (!body.held && !body.abducted && body.mesh) meshes.push(body.mesh);
+      }
       for (const slot of this.garden.nursery.slots) if (slot.mesh) meshes.push(slot.mesh);
+      if (this.beacon) meshes.push(this.beacon);
       const hits = this.raycaster.intersectObjects(meshes, true);
 
       if (hits.length) {
         let mesh = hits[0].object;
         while (mesh.parent && !meshes.includes(mesh)) mesh = mesh.parent;
+        if (mesh === this.beacon) {
+          this.beaconAction?.();
+          return;
+        }
         mesh.getWorldPosition(_v1);
         this.dragPlane.setFromNormalAndCoplanarPoint(
           this.camera.getWorldDirection(_v2), _v1);
@@ -484,6 +533,9 @@ export class Interactions {
         this.tryGrab(this.mouseGrabber);
         if (!this.mouseGrabber.held) this.orbit.dragging = true;
       } else {
+        // During an invasion an empty click is the blaster; you can still
+        // drag to look around while the beams stream out.
+        if (this.invasionOn()) this.mouseGrabber.firing = true;
         this.orbit.dragging = true;
       }
       dom.setPointerCapture(e.pointerId);
@@ -491,8 +543,8 @@ export class Interactions {
 
     dom.addEventListener('pointermove', (e) => {
       if (this.renderer.xr.isPresenting) return;
+      toPointer(e); // keep the aim ray current even between drags
       if (this.mouseGrabber.held) {
-        toPointer(e);
         this.raycaster.setFromCamera(this.pointer, this.camera);
         if (this.raycaster.ray.intersectPlane(this.dragPlane, _v1)) {
           this.mouseGrabber.worldPos.copy(_v1);
@@ -509,6 +561,7 @@ export class Interactions {
       }
       this.mouseGrabber.active = false;
       this.mouseGrabber.pressCount = 0;
+      this.mouseGrabber.firing = false;
       this.orbit.dragging = false;
     };
     dom.addEventListener('pointerup', endDrag);
@@ -526,10 +579,21 @@ export class Interactions {
       if (e.key === 'p' || e.key === 'P' || e.key === ' ') this.actions.togglePause();
       if (e.key === 'c' || e.key === 'C') this.actions.clearPlanets();
       if (e.key === 'h' || e.key === 'H') this.actions.togglePanel();
+      if (e.key === 'g' || e.key === 'G') this.beaconAction?.();
       if (e.key === '0') this.actions.resetView();
       if (e.key === '1') this.sim.timeScale = Math.max(TIME.min, this.sim.timeScale / 1.5);
       if (e.key === '2') this.sim.timeScale = Math.min(TIME.max, this.sim.timeScale * 1.5);
     });
+  }
+
+  // The mouse shooter's aim: a ray through the cursor. False in XR, where
+  // the controllers are the blasters.
+  getMouseRay(origin, dir) {
+    if (this.renderer.xr.isPresenting) return false;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    origin.copy(this.raycaster.ray.origin);
+    dir.copy(this.raycaster.ray.direction);
+    return true;
   }
 
   // Desktop camera glide; called only when not presenting in XR.
