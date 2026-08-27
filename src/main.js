@@ -9,6 +9,7 @@ import {
 import { buildTexturePool, ARCHETYPES } from './textures.js';
 import { InfoPanel } from './panel.js';
 import { Interactions } from './interact.js';
+import { Invasion } from './invasion.js';
 
 // GRAVITY GARDEN
 // A quiet corner of space, a small hungry sun, and as many planets as you
@@ -112,6 +113,24 @@ class Garden {
     this.sim.sun.meals = 0;
     sunState.setRadius(SUN.radius);
     for (const grabber of interactions?.grabbers ?? []) grabber.pulse(0.8, 220);
+    invasion?.onNova(); // during a siege the shockwave also scours the sky
+  }
+
+  // A stinger made off with a planet: it leaves the sim but its mesh flies
+  // on, hanging from the thief. Returns what a rescue needs to rebuild it.
+  abductPlanet(body) {
+    if (!body.alive || !body.mesh) return null;
+    const { mesh, radius, colorIndex, hasRing } = body;
+    this.sim.remove(body);
+    const trail = this.trails.get(body);
+    if (trail) {
+      trail.line.parent?.remove(trail.line);
+      trail.dispose();
+      this.trails.delete(body);
+    }
+    body.mesh = null;
+    mesh.parent?.remove(mesh);
+    return { mesh, radius, colorIndex, hasRing };
   }
 
   addPlanet(pos, vel, radius, colorIndex, mesh = null, archetype = undefined) {
@@ -220,6 +239,8 @@ const _v1 = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 
+let invasion = null; // assigned below; Garden.nova() may fire before then
+
 const audio = new GardenAudio();
 const garden = new Garden(audio, gardenGroup);
 const sim = garden.sim;
@@ -237,6 +258,22 @@ const actions = {
 
 const interactions = new Interactions({
   renderer, camera, scene, sim, garden, audio, actions, dom: renderer.domElement,
+});
+
+// ---- the invasion ----------------------------------------------------------------
+
+// The game mode: press the beacon (or G) and the poachers come for your
+// worlds. See invasion.js for the whole war.
+invasion = new Invasion({
+  scene, sim, garden, audio,
+  sunFx: sunState,
+  getXRMode: () => xrMode,
+});
+invasion.bindInput(interactions);
+interactions.bindInvasion({
+  beacon: invasion.beacon,
+  toggle: () => { invasion.toggle(); },
+  isActive: () => invasion.active,
 });
 
 // ---- the opening scene ------------------------------------------------------------
@@ -346,6 +383,7 @@ renderer.setAnimationLoop(() => {
   interactions.update(dt, t, presenting);
   sim.step(dt);
   garden.update(dt, t);
+  invasion.update(dt, t);
   sunState.update(t, dt);
   for (const child of starfield.children) {
     child.userData.starMat && (child.userData.starMat.uniforms.uTime.value = t);
@@ -370,6 +408,7 @@ renderer.setAnimationLoop(() => {
       trails: garden.trailsOn,
       meals: sim.sun.meals,
       mealsToNova: SUN.mealsToNova,
+      invasion: invasion.getStats(),
     });
   }
   panel.update();
@@ -385,6 +424,6 @@ window.addEventListener('resize', () => {
 
 // A debug handle for automated smoke tests (and the curious).
 window.__gg = {
-  sim, garden, renderer, camera, gardenGroup, interactions,
+  sim, garden, renderer, camera, gardenGroup, interactions, invasion,
   setSpaceScenery, starfield, platform,
 };

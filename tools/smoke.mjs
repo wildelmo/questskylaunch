@@ -152,6 +152,66 @@ check('2 sped up time', toggles.ts > 2, `×${toggles.ts.toFixed(2)}`);
 await page.waitForTimeout(1200);
 if (shotsDir) await page.screenshot({ path: join(shotsDir, 'garden-2-after-throw.png') });
 
+// ---- the invasion, end to end ------------------------------------------------
+// Press G to light the beacon, let the alarm run, then use the debug hooks to
+// spawn a stinger at a known spot and shoot it — proving the whole kill path
+// (bolt flight, swept collision, scoring, explosion) in the real page.
+
+await page.keyboard.press('g');
+const invState = await page.evaluate(() => window.__gg.invasion.state);
+check('beacon starts the invasion', invState === 'alarm', invState);
+
+await page.waitForFunction(
+  () => window.__gg.invasion.state === 'wave' && window.__gg.invasion.rifts.length > 0,
+  null, { timeout: 30000 });
+check('alarm gives way to wave 1 with a rift open', true);
+
+// Ships arrive on their own; wait for the first natural spawn.
+await page.waitForFunction(
+  () => window.__gg.invasion.ships.length > 0, null, { timeout: 30000 });
+check('ships come through the rift', true);
+
+if (shotsDir) await page.screenshot({ path: join(shotsDir, 'garden-3-invasion.png') });
+
+// Deterministic kill: park a stinger clear of the garden (an unknown phase
+// runs no AI, so it hovers) and fire bolts straight at it.
+const killResult = await page.evaluate(async () => {
+  const inv = window.__gg.invasion;
+  const before = { score: inv.score, kills: inv.kills };
+  const ship = inv.debugSpawn('stinger', [0.8, 1.9, -2.5]);
+  ship.phase = 'hold';
+  for (let i = 0; i < 40 && ship.hp > 0; i++) {
+    inv.debugFireAt(ship);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return {
+    dead: ship.hp <= 0,
+    scored: inv.score > before.score,
+    counted: inv.kills > before.kills,
+  };
+});
+check('a bolt kills a stinger', killResult.dead);
+check('the kill scores', killResult.scored && killResult.counted);
+
+// Mouse fire: hold the pointer down on empty sky and check bolts stream out.
+await page.mouse.move(200, 200);
+await page.mouse.down();
+await page.waitForTimeout(400);
+const boltsAlive = await page.evaluate(() => window.__gg.invasion.bolts.bolts.length);
+await page.mouse.up();
+check('holding the mouse hoses out bolts', boltsAlive >= 2, `${boltsAlive} bolts`);
+
+// End the siege: ships retreat, rifts close, the mode goes idle.
+await page.keyboard.press('g');
+await page.waitForFunction(
+  () => window.__gg.invasion.state === 'idle', null, { timeout: 30000 });
+const cleaned = await page.evaluate(() => ({
+  ships: window.__gg.invasion.ships.length,
+  rifts: window.__gg.invasion.rifts.filter((r) => !r.closing).length,
+}));
+check('beacon again ends the invasion and clears the sky',
+  cleaned.ships === 0 && cleaned.rifts === 0, JSON.stringify(cleaned));
+
 const finalErrors = errors.length;
 check('still no errors after interaction', finalErrors === 0, errors.slice(0, 3).join(' | '));
 
