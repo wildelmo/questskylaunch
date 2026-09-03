@@ -267,6 +267,116 @@ try {
 await page.mouse.up();
 check('holding the mouse hoses out bolts', boltsAlive >= 2, `${boltsAlive} bolts`);
 
+// Rifts share the load: jump to a two-rift wave and record which rift each
+// ship comes out of. Before the round-robin fix every ship used rift #0.
+const riftSpread = await page.evaluate(async () => {
+  const inv = window.__gg.invasion;
+  for (const s of [...inv.ships]) inv.removeShip(s);
+  inv.startWave(4);
+  const used = new Set();
+  const seen = new Set();
+  const t0 = performance.now();
+  while (performance.now() - t0 < 40000 && used.size < 2) {
+    await new Promise((r) => setTimeout(r, 200));
+    for (const s of inv.ships) {
+      if (seen.has(s)) continue;
+      seen.add(s);
+      // A fresh ship is still at (or a step from) its rift.
+      let best = null, bestD = Infinity;
+      for (let i = 0; i < inv.rifts.length; i++) {
+        const d = s.pos.distanceTo(inv.rifts[i].pos);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (bestD < 1.0) used.add(best);
+    }
+  }
+  return { rifts: inv.rifts.filter((r) => !r.closing).length, used: [...used], spawned: seen.size };
+});
+check('a wave-4 siege opens two rifts', riftSpread.rifts === 2, JSON.stringify(riftSpread));
+check('ships come out of more than one rift', riftSpread.used.length >= 2, JSON.stringify(riftSpread));
+
+// The late arrivals exist as real hulls and run their AI without throwing.
+const lateTypes = await page.evaluate(async () => {
+  const inv = window.__gg.invasion;
+  for (const s of [...inv.ships]) inv.removeShip(s);
+  inv.queue.length = 0;
+  const w = inv.debugSpawn('wraith', [1.5, 1.8, -1.5]);
+  const h = inv.debugSpawn('harvester', [-1.5, 1.8, -1.5]);
+  const g = inv.debugSpawn('warden', [-1.6, 1.9, -1.4]);
+  const sp = inv.debugSpawn('siphon', [0, 2.2, -2.5]);
+  for (const s of [w, h, g, sp]) s.phase = 'enter';
+  window.__gg.sim.sun.meals = 3;
+  const t0 = performance.now();
+  const out = { cloakedOnce: false, shieldedOnce: false, drained: false, phases: new Set() };
+  while (performance.now() - t0 < 30000) {
+    await new Promise((r) => setTimeout(r, 200));
+    if (w.cloak > 0.5) out.cloakedOnce = true;
+    if (h.shielded === g) out.shieldedOnce = true;
+    if (window.__gg.sim.sun.meals < 3) out.drained = true;
+    for (const s of [w, g, sp]) out.phases.add(`${s.type}:${s.phase}`);
+    if (out.cloakedOnce && out.shieldedOnce && out.drained) break;
+  }
+  return { ...out, phases: [...out.phases], alive: inv.ships.length };
+});
+check('a wraith cloaks', lateTypes.cloakedOnce, lateTypes.phases.join(','));
+check('a warden shields the barge it escorts', lateTypes.shieldedOnce, lateTypes.phases.join(','));
+check('a siphon drains the sun', lateTypes.drained, lateTypes.phases.join(','));
+
+// Seeker pods: drop one, pick it up with the mouse shooter, and confirm the
+// trigger now launches a seeker that homes in and kills.
+const seekerResult = await page.evaluate(async () => {
+  const inv = window.__gg.invasion;
+  for (const s of [...inv.ships]) inv.removeShip(s);
+  const pod = inv.debugDropPod([0.3, 1.4, -0.4]);
+  const picked = inv.pickupPod(pod, 2);
+  const loaded = inv.shooters[2].seekers;
+  // A parked stinger 2.5 m out, and a shooter aimed roughly at it.
+  const ship = inv.debugSpawn('stinger', [0.6, 1.9, -2.6]);
+  ship.phase = 'hold';
+  ship.spawnK = 1;
+  const origin = ship.pos.clone().add(new ship.pos.constructor(0.4, 0.2, 2.2));
+  const dir = ship.pos.clone().sub(origin).normalize();
+  const lock = inv.seekerLock(origin, dir);
+  inv.fireSeeker(2, null, lock);
+  const t0 = performance.now();
+  while (performance.now() - t0 < 8000 && ship.hp > 0) await new Promise((r) => setTimeout(r, 100));
+  return { picked, loaded, locked: lock === ship, dead: ship.hp <= 0, left: inv.shooters[2].seekers };
+});
+check('grabbing a pod loads seekers', seekerResult.picked && seekerResult.loaded === 6,
+  JSON.stringify(seekerResult));
+check('a seeker locks on and kills its target', seekerResult.locked && seekerResult.dead,
+  JSON.stringify(seekerResult));
+check('firing spends a seeker', seekerResult.left === 5, `${seekerResult.left} left`);
+
+// The exit hatch: a mouse hold on it fills the ring and fires the exit
+// action; a released hold cancels. Headless has no XR session to end, so
+// the action is a no-op here — the wiring is what's under test.
+const hatchScreen = await page.evaluate(() => {
+  const { hatch, camera, actions } = window.__gg;
+  window.__exitCalls = 0;
+  const orig = actions.exitXR;
+  actions.exitXR = () => { window.__exitCalls++; return orig(); };
+  window.__gg.interactions.onExit = () => actions.exitXR();
+  const v = hatch.getWorldPosition(hatch.position.clone()).project(camera);
+  return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
+});
+await page.mouse.move(hatchScreen.x, hatchScreen.y);
+await page.mouse.down();
+await page.waitForTimeout(400);
+const heldEarly = await page.evaluate(() => !!window.__gg.interactions.exitHold);
+await page.mouse.up();
+await page.waitForTimeout(100);
+const cancelled = await page.evaluate(() => !window.__gg.interactions.exitHold && window.__exitCalls === 0);
+check('a hand on the hatch starts a hold', heldEarly);
+check('letting go early cancels it', cancelled);
+await page.mouse.down();
+try {
+  await page.waitForFunction(() => window.__exitCalls > 0, null, { timeout: 25000 });
+} catch { /* the check below reports it */ }
+await page.mouse.up();
+const exited = await page.evaluate(() => window.__exitCalls);
+check('holding the hatch fires the exit', exited === 1, `${exited} exit calls`);
+
 // End the siege: ships retreat, rifts close, the mode goes idle.
 await page.keyboard.press('g');
 await page.waitForFunction(

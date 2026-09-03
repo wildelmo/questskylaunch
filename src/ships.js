@@ -2,11 +2,12 @@ import * as THREE from 'three';
 import { INVASION } from './config.js';
 import { softDiscTexture } from './cosmos.js';
 
-// The invaders' bodies, and everything that glows around them: three ship
+// The invaders' bodies, and everything that glows around them: the ship
 // silhouettes, the rifts they tear open, the beacon that summons them, the
-// blasters that answer, and pooled bolts / debris / score popups. Like the
-// rest of the garden, nothing is downloaded — every hull is primitives and
-// every glow is a canvas gradient.
+// blasters that answer, and pooled bolts / debris / score popups — plus the
+// garden's own seeker pods and missiles, and the hatch that leads back out
+// of the headset. Like the rest of the garden, nothing is downloaded — every
+// hull is primitives and every glow is a canvas gradient.
 //
 // The enemy palette deliberately clashes with the garden. The garden speaks
 // cyan and amber; the poachers arrive in magenta, toxic green and ember red,
@@ -17,6 +18,9 @@ export const ENEMY_GLOW = {
   stinger: 0xff4fd8,
   harvester: 0x8dff5a,
   marauder: 0xff5a3c,
+  wraith: 0xb48cff,   // cold violet
+  warden: 0xffe14a,   // sickly yellow
+  siphon: 0x32f7c2,   // mint teal
 };
 const RIFT_COLOR = 0x9b5cff;
 export const BOLT_COLOR = 0x9fdcff; // the garden's own cyan, answering back
@@ -91,7 +95,7 @@ function wingGeometry(side, span, chord, sweep) {
   return geo;
 }
 
-// ---- the three silhouettes ---------------------------------------------------
+// ---- the silhouettes ---------------------------------------------------------
 
 // Stinger: a fast insect dart. One bolt kills it; there are many.
 function makeStinger() {
@@ -252,17 +256,242 @@ function makeMarauder() {
   return finishShip(group, shell, 0.14);
 }
 
-// Shared ship plumbing: the rim shell doubles as the hit flash.
+// Wraith: a cloaking thief. A knife-thin manta that fades to a shimmer on
+// the hunt and only shows itself for the snatch. `setCloak` runs it in and
+// out of sight; the rim shell keeps a ghost of it so a sharp eye can track.
+function makeWraith() {
+  const group = new THREE.Group();
+  const hull = chitin(0x2a2440);
+
+  // Blade fuselage: one octahedron drawn out long and flat along -Z.
+  const blade = new THREE.Mesh(new THREE.OctahedronGeometry(0.03, 0), hull);
+  blade.scale.set(0.55, 0.35, 2.4);
+  group.add(blade);
+
+  const wingMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1528, metalness: 0.45, roughness: 0.5, flatShading: true,
+    side: THREE.DoubleSide, emissive: ENEMY_GLOW.wraith, emissiveIntensity: 0.3,
+  });
+  const wings = [];
+  for (const side of [-1, 1]) {
+    const wing = new THREE.Mesh(wingGeometry(side, 0.075, 0.09, 0.09), wingMat);
+    wing.position.z = -0.005;
+    wing.rotation.z = -side * 0.12; // manta droop
+    group.add(wing);
+    wings.push(wing);
+  }
+
+  // Twin tail barbs trailing behind.
+  for (const side of [-1, 1]) {
+    const barb = new THREE.Mesh(new THREE.ConeGeometry(0.004, 0.05, 4), hull);
+    barb.position.set(side * 0.012, 0, 0.085);
+    barb.rotation.x = Math.PI / 2; // apex backward, up +Z
+    barb.rotation.z = -side * 0.25;
+    group.add(barb);
+  }
+
+  const eye = glowSprite(ENEMY_GLOW.wraith, 0.03);
+  eye.position.z = -0.06;
+  const engine = glowSprite(0xd6c0ff, 0.045, 0.85);
+  engine.position.z = 0.075;
+  group.add(eye, engine);
+
+  const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(0.06, 2),
+    rimShellMaterial(ENEMY_GLOW.wraith, 0.2));
+  shell.scale.set(1.1, 0.5, 1.6);
+  group.add(shell);
+
+  // Cloaking drives opacity on the hull materials directly; the list is
+  // fixed at build time so no traversal happens per frame.
+  const hullMats = [hull, wingMat];
+  for (const m of hullMats) m.transparent = true;
+  group.userData.setCloak = (k) => {
+    group.userData.cloak = k;
+    const vis = 1 - k;
+    for (const m of hullMats) {
+      m.opacity = 0.06 + 0.94 * vis;
+      m.depthWrite = k < 0.5; // a ghost must not occlude what's behind it
+    }
+    eye.material.opacity = vis;
+  };
+
+  group.userData.animate = (t, dt, phase) => {
+    const vis = 1 - group.userData.cloak;
+    for (let i = 0; i < wings.length; i++) {
+      wings[i].rotation.z = (i === 0 ? 1 : -1) * (0.12 + Math.sin(t * 3.2 + phase) * 0.16);
+    }
+    engine.material.opacity = (0.6 + Math.sin(t * 19 + phase) * 0.25) * vis;
+  };
+  return finishShip(group, shell, 0.2);
+}
+
+// Warden: a shield-projecting escort. A squat armoured turtle with three
+// prongs that throw the bubble; it has no teeth of its own, it just makes
+// everything near it harder to kill.
+function makeWarden() {
+  const group = new THREE.Group();
+  const hull = chitin(0x3f3a22);
+
+  const dome = new THREE.Mesh(new THREE.IcosahedronGeometry(0.075, 1), hull);
+  dome.scale.set(1, 0.5, 1.1);
+  group.add(dome);
+
+  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.07, 0.022, 9), hull);
+  skirt.position.y = -0.012;
+  group.add(skirt);
+
+  // Three prong emitters at 120°, leaning outward and up from the rim, each
+  // with a glow bead at its point.
+  const tips = [];
+  for (let i = 0; i < 3; i++) {
+    const pivot = new THREE.Group();
+    pivot.rotation.y = (i / 3) * Math.PI * 2 + Math.PI / 2; // one prong forward
+    const prong = new THREE.Mesh(new THREE.ConeGeometry(0.008, 0.06, 4), hull);
+    prong.position.set(0.065, 0.025, 0);
+    prong.rotation.z = -0.9; // apex outward
+    pivot.add(prong);
+    const tip = glowSprite(ENEMY_GLOW.warden, 0.028, 0.8);
+    tip.position.set(0.089, 0.044, 0);
+    pivot.add(tip);
+    tips.push(tip);
+    group.add(pivot);
+  }
+
+  // The emitter ring: a broken hoop above the dome that never stops turning.
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.052, 0.003, 5, 24, Math.PI * 1.6),
+    new THREE.MeshBasicMaterial({ color: ENEMY_GLOW.warden, toneMapped: false })
+  );
+  ring.rotation.x = Math.PI / 2; // lie flat
+  ring.position.y = 0.03;
+  group.add(ring);
+
+  const eye = glowSprite(ENEMY_GLOW.warden, 0.03);
+  eye.position.set(0, 0.004, -0.088);
+  const underglow = glowSprite(0xfff28a, 0.14, 0.35);
+  underglow.position.y = -0.03;
+  group.add(eye, underglow);
+
+  const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 2),
+    rimShellMaterial(ENEMY_GLOW.warden, 0.2));
+  shell.scale.set(1, 0.55, 1.05);
+  group.add(shell);
+
+  group.userData.animate = (t, dt, phase) => {
+    ring.rotation.z += dt * 2.4;
+    for (let i = 0; i < tips.length; i++) {
+      tips[i].material.opacity = 0.55 + Math.sin(t * 7 + phase + i * 2.1) * 0.35;
+    }
+    underglow.material.opacity = 0.3 + Math.sin(t * 4 + phase) * 0.1;
+  };
+  return finishShip(group, shell, 0.2);
+}
+
+// Siphon: a sun leech. A mosquito that hangs over the sun with its needle
+// down in the fire, and a glass abdomen that swells with what it steals.
+// `setFill` is how full it is; the game drives it as the sun drains.
+function makeSiphon() {
+  const group = new THREE.Group();
+  const hull = chitin(0x1f3a36);
+
+  const thorax = new THREE.Mesh(new THREE.IcosahedronGeometry(0.03, 1), hull);
+  thorax.scale.set(1, 0.85, 1.2);
+  group.add(thorax);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), hull);
+  head.position.set(0, -0.012, -0.04);
+  group.add(head);
+
+  // The proboscis: a long needle straight down from the head, along -Y.
+  const needle = new THREE.Mesh(new THREE.ConeGeometry(0.004, 0.13, 5), hull);
+  needle.position.set(0, -0.077, -0.04);
+  needle.rotation.x = Math.PI; // apex down
+  group.add(needle);
+
+  // Four legs splayed outward and down.
+  for (const [side, z] of [[-1, -0.015], [1, -0.015], [-1, 0.02], [1, 0.02]]) {
+    const leg = new THREE.Mesh(new THREE.ConeGeometry(0.003, 0.05, 3), hull);
+    leg.position.set(side * 0.032, -0.02, z);
+    leg.rotation.z = -side * 2.2; // apex out and below the body
+    group.add(leg);
+  }
+
+  // Glassy wings, held high and blurring.
+  const wingMat = new THREE.MeshStandardMaterial({
+    color: 0x9ad8c8, metalness: 0.2, roughness: 0.3, flatShading: true,
+    side: THREE.DoubleSide, transparent: true, opacity: 0.35,
+    emissive: ENEMY_GLOW.siphon, emissiveIntensity: 0.25, depthWrite: false,
+  });
+  const wings = [];
+  for (const side of [-1, 1]) {
+    const wing = new THREE.Mesh(wingGeometry(side, 0.05, 0.05, 0.055), wingMat);
+    wing.position.set(0, 0.02, 0.005);
+    group.add(wing);
+    wings.push(wing);
+  }
+
+  // The abdomen: translucent, lit from inside, and swelling as it fills.
+  const bellyMat = new THREE.MeshStandardMaterial({
+    color: 0x1a4d44, metalness: 0.1, roughness: 0.25, transparent: true,
+    opacity: 0.55, emissive: ENEMY_GLOW.siphon, emissiveIntensity: 0.3,
+  });
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8), bellyMat);
+  belly.position.set(0, 0.004, 0.05);
+  group.add(belly);
+  const bellyGlow = glowSprite(ENEMY_GLOW.siphon, 0.06, 0.3);
+  bellyGlow.position.copy(belly.position);
+  group.add(bellyGlow);
+
+  for (const side of [-1, 1]) {
+    const eye = glowSprite(ENEMY_GLOW.siphon, 0.018);
+    eye.position.set(side * 0.012, -0.006, -0.052);
+    group.add(eye);
+  }
+  const drip = glowSprite(0xbdfff0, 0.03, 0.7);
+  drip.position.set(0, -0.14, -0.04);
+  group.add(drip);
+
+  const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(0.075, 2),
+    rimShellMaterial(ENEMY_GLOW.siphon, 0.2));
+  shell.scale.set(1, 0.8, 1.6);
+  shell.position.z = 0.01;
+  group.add(shell);
+
+  const state = { fill: 0 };
+  group.userData.setFill = (k) => { state.fill = Math.min(1, Math.max(0, k)); };
+
+  group.userData.animate = (t, dt, phase) => {
+    const f = state.fill;
+    // Full bellies beat faster.
+    const pulse = 1 + Math.sin(t * (4 + f * 5) + phase) * (0.04 + f * 0.06);
+    const size = (0.8 + f * 0.4) * pulse;
+    belly.scale.set(size, size * 0.9, size * 1.3);
+    bellyMat.emissiveIntensity = 0.3 + f * 1.3 * pulse;
+    bellyGlow.scale.setScalar(0.06 + f * 0.09 * pulse);
+    bellyGlow.material.opacity = 0.2 + f * 0.6;
+    for (let i = 0; i < wings.length; i++) {
+      wings[i].rotation.z = (i === 0 ? 1 : -1) * Math.sin(t * 40 + phase) * 0.35;
+    }
+    drip.material.opacity = 0.5 + Math.sin(t * 13 + phase) * 0.2 + f * 0.3;
+  };
+  return finishShip(group, shell, 0.2);
+}
+
+// Shared ship plumbing: the rim shell doubles as the hit flash. `cloak`
+// (0..1, only the wraith drives it) dims the shell's resting glow toward a
+// 0.05 shimmer — the flash itself always shows through.
 function finishShip(group, shell, baseStrength) {
   group.userData.shell = shell;
   group.userData.flash = 0;
+  group.userData.cloak = 0;
   group.userData.setFlash = (k) => {
     group.userData.flash = k;
   };
   group.userData.updateFlash = (dt) => {
     const ud = group.userData;
     ud.flash = Math.max(0, ud.flash - dt * 5);
-    shell.material.uniforms.uStrength.value = baseStrength + ud.flash * 3.5;
+    const base = baseStrength + (0.05 - baseStrength) * ud.cloak;
+    shell.material.uniforms.uStrength.value = base + ud.flash * 3.5;
   };
   return group;
 }
@@ -270,6 +499,9 @@ function finishShip(group, shell, baseStrength) {
 export function makeShipMesh(type) {
   const mesh = type === 'stinger' ? makeStinger()
     : type === 'harvester' ? makeHarvester()
+    : type === 'wraith' ? makeWraith()
+    : type === 'warden' ? makeWarden()
+    : type === 'siphon' ? makeSiphon()
     : makeMarauder();
   mesh.userData.type = type;
   return mesh;
@@ -282,6 +514,73 @@ export function disposeShipMesh(mesh) {
     o.geometry?.dispose();
     o.material?.dispose();
   });
+}
+
+// ---- the shield bubble -------------------------------------------------------
+
+// What a warden throws over its charges: a unit sphere (the game scales it)
+// of fresnel rim and faint lattice in the warden's yellow. `ripple` is the
+// bright wince when a bolt splashes off it.
+export function makeShieldBubble() {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(ENEMY_GLOW.warden) },
+      uStrength: { value: 1 },
+      uRipple: { value: 0 },
+      uTime: { value: 0 },
+    },
+    vertexShader: /* glsl */`
+      varying float vRim;
+      varying vec2 vUv;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vec3 n = normalize(normalMatrix * normal);
+        vRim = pow(1.0 - abs(dot(n, normalize(-mv.xyz))), 3.2);
+        vUv = uv;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform vec3 uColor;
+      uniform float uStrength;
+      uniform float uRipple;
+      uniform float uTime;
+      varying float vRim;
+      varying vec2 vUv;
+      void main() {
+        // A faint lattice of meridians and slowly climbing parallels, and
+        // scanlines rolling down the whole thing.
+        float lattice = max(
+          smoothstep(0.9, 1.0, abs(sin(vUv.x * 48.0))),
+          smoothstep(0.9, 1.0, abs(sin(vUv.y * 24.0 + uTime * 0.4))));
+        float scan = 0.85 + 0.15 * sin(vUv.y * 90.0 - uTime * 3.0);
+        // Kept faint on purpose: this is a field the size of a beach ball,
+        // drawn both-sided and additive, a metre from the player's eyes.
+        // The ships inside must stay readable through it.
+        float body = (vRim * 0.34 + 0.012 + lattice * 0.045) * scan;
+        vec3 col = uColor * body + vec3(1.0) * uRipple * (vRim * 0.6 + 0.2);
+        gl_FragColor = vec4(col * uStrength, 1.0);
+      }`,
+    blending: THREE.AdditiveBlending,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 20), mat);
+
+  const state = { ripple: 0 };
+  mesh.userData.setStrength = (k) => { mat.uniforms.uStrength.value = k; };
+  mesh.userData.ripple = () => { state.ripple = 1; };
+  mesh.userData.animate = (t, dt) => {
+    mat.uniforms.uTime.value = t;
+    state.ripple = Math.max(0, state.ripple - dt / 0.3);
+    mat.uniforms.uRipple.value = state.ripple * state.ripple;
+  };
+  return mesh;
+}
+
+export function disposeShieldBubble(mesh) {
+  mesh.geometry.dispose();
+  mesh.material.dispose();
 }
 
 // ---- rifts -------------------------------------------------------------------
@@ -473,6 +772,118 @@ export function makeBeacon() {
   return group;
 }
 
+// ---- the exit hatch ----------------------------------------------------------
+
+// The way out of the headset, in the garden's own colours: a turning ring
+// on the beacon's pedestal, an airlock glyph inside it, and "EXIT" beneath.
+// Hold a hand on it and an amber arc fills clockwise; full circle, it
+// flashes white and the game takes it from there.
+export function makeExitHatch() {
+  const group = new THREE.Group();
+
+  const pedestal = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.05, 0.065, 0.02, 24),
+    new THREE.MeshStandardMaterial({
+      color: 0x16233c, roughness: 0.4, metalness: 0.3,
+      emissive: 0x67d7ff, emissiveIntensity: 0.08,
+    })
+  );
+  pedestal.position.y = -0.14;
+  group.add(pedestal);
+
+  // The ring: a hoop with a gap so its slow turn can be seen.
+  const ringMat = new THREE.MeshStandardMaterial({
+    color: 0x16233c, roughness: 0.35, metalness: 0.5,
+    emissive: 0x67d7ff, emissiveIntensity: 0.5,
+  });
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.05, 0.005, 8, 40, Math.PI * 1.85), ringMat);
+  group.add(ring);
+
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.038, 32),
+    new THREE.MeshBasicMaterial({
+      color: 0x0c1a2c, transparent: true, opacity: 0.8, side: THREE.DoubleSide,
+    }));
+  group.add(disc);
+
+  // The glyph: a broken ring with a bar through the gap — a door ajar.
+  const glyphMat = new THREE.MeshBasicMaterial({
+    color: 0x9fdcff, toneMapped: false, side: THREE.DoubleSide,
+  });
+  const glyphRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.02, 0.0025, 6, 28, Math.PI * 1.5), glyphMat);
+  glyphRing.rotation.z = Math.PI * 0.75; // gap at the top
+  glyphRing.position.z = 0.003;
+  const glyphBar = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.024, 0.004), glyphMat);
+  glyphBar.position.set(0, 0.012, 0.003);
+  group.add(glyphRing, glyphBar);
+
+  // The hold arc, rebuilt only when it has grown enough to notice.
+  const arcMat = new THREE.MeshBasicMaterial({
+    color: 0xffd9a0, transparent: true, opacity: 0, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+  });
+  const arc = new THREE.Mesh(new THREE.RingGeometry(0.057, 0.065, 48, 1, 0, 0.001), arcMat);
+  arc.position.z = -0.002;
+  group.add(arc);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 96;
+  const g = canvas.getContext('2d');
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = '700 56px "Segoe UI", system-ui, sans-serif';
+  g.shadowColor = '#9fdcff';
+  g.shadowBlur = 18;
+  g.fillStyle = '#9fdcff';
+  g.fillText('EXIT', 128, 48);
+  g.shadowBlur = 0;
+  g.fillStyle = 'rgba(255,255,255,0.92)';
+  g.fillText('EXIT', 128, 48);
+  const labelTex = new THREE.CanvasTexture(canvas);
+  labelTex.colorSpace = THREE.SRGBColorSpace;
+  const label = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: labelTex, transparent: true, depthWrite: false,
+  }));
+  label.scale.set(0.1, 0.0375, 1);
+  label.position.y = -0.09;
+  group.add(label);
+
+  const halo = glowSprite(0x67d7ff, 0.16, 0.35);
+  halo.position.z = -0.005;
+  group.add(halo);
+
+  const state = { hover: 0, hold: 0, built: -1, flash: 0 };
+  group.userData.setHover = (k) => { state.hover = k; };
+  group.userData.setHold = (k) => {
+    const hold = Math.min(1, Math.max(0, k));
+    if (hold >= 1 && state.hold < 1) state.flash = 1;
+    state.hold = hold;
+    if (Math.abs(hold - state.built) > 0.02 || (hold === 0) !== (state.built === 0)) {
+      state.built = hold;
+      arc.geometry.dispose();
+      // Start walks backward from 12 o'clock so the arc fills clockwise.
+      const len = Math.max(0.001, hold * Math.PI * 2);
+      arc.geometry = new THREE.RingGeometry(0.057, 0.065, 48, 1, Math.PI / 2 - len, len);
+    }
+  };
+  group.userData.animate = (t, dt) => {
+    const breath = 0.85 + Math.sin(t * 1.8) * 0.15;
+    const lift = 1 + state.hover * 0.6;
+    state.flash = Math.max(0, state.flash - dt * 4);
+    ring.rotation.z += dt * 0.35;
+    ringMat.emissiveIntensity = 0.5 * breath * lift;
+    glyphMat.color.setHex(0x9fdcff).lerp(_c.setHex(0xffffff), state.hover * 0.5);
+    halo.material.opacity = 0.35 * breath * lift;
+    halo.scale.setScalar(0.16 * (1 + state.hover * 0.2));
+    label.material.opacity = 0.7 + state.hover * 0.3;
+    arcMat.opacity = state.hold > 0 ? 0.75 + state.flash * 0.25 : 0;
+    arcMat.color.setHex(0xffd9a0).lerp(_c.setHex(0xffffff), state.flash);
+  };
+  return group;
+}
+
 // ---- the blaster -------------------------------------------------------------
 
 // What a controller becomes when the beacon burns: a stub barrel with a
@@ -517,13 +928,31 @@ export function makeBlaster() {
   flash.position.z = -0.075;
   group.add(flash);
 
-  const state = { flash: 0 };
+  // Seeker pips: a row of gold beads along the spine, one per two missiles
+  // loaded — the whole magazine at a glance, and a gold muzzle while any
+  // are left.
+  const pipMat = new THREE.MeshBasicMaterial({ color: SEEKER_COLOR, toneMapped: false });
+  const pips = [];
+  for (let i = 0; i < 6; i++) {
+    const pip = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.004, 0.006), pipMat);
+    pip.position.set(0, 0.033, -0.045 + i * 0.011);
+    pip.visible = false;
+    group.add(pip);
+    pips.push(pip);
+  }
+
+  const state = { flash: 0, loaded: 0 };
   group.userData.setHeat = (h, overheated) => {
     const k = Math.min(1, h);
     _c.setHex(BOLT_COLOR).lerp(new THREE.Color(0xff3820), k * k);
     heatMat.color.copy(_c);
     // Overheat: the muzzle ring goes dark while the blaster vents.
-    ringMat.color.copy(overheated ? _c.setHex(0x5a2018) : _c.setHex(BOLT_COLOR));
+    ringMat.color.setHex(overheated ? 0x5a2018 : state.loaded > 0 ? SEEKER_COLOR : BOLT_COLOR);
+  };
+  group.userData.setLoaded = (n) => {
+    state.loaded = n;
+    const lit = Math.min(pips.length, Math.ceil(n / 2));
+    for (let i = 0; i < pips.length; i++) pips[i].visible = i < lit;
   };
   group.userData.flash = () => { state.flash = 1; };
   group.userData.animate = (dt) => {
@@ -534,6 +963,109 @@ export function makeBlaster() {
   };
   group.visible = false;
   return group;
+}
+
+// ---- seeker pods and missiles ------------------------------------------------
+
+// A power-up worth reaching for: a cyan crystal with a white heart, two
+// rings on the turn, and a halo. The game bobs it; this only spins and
+// pulses. `setFade` blinks it out before it expires; `setHover` is the
+// come-hither when a hand is near.
+export function makeSeekerPod() {
+  const group = new THREE.Group();
+
+  const crystalMat = new THREE.MeshStandardMaterial({
+    color: 0x67d7ff, metalness: 0.2, roughness: 0.25, flatShading: true,
+    transparent: true, opacity: 0.75, emissive: 0x67d7ff, emissiveIntensity: 0.6,
+  });
+  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.028, 0), crystalMat);
+  crystal.scale.set(1, 1.5, 1);
+  group.add(crystal);
+
+  const core = glowSprite(0xffffff, 0.035);
+  group.add(core);
+
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x9fdcff, transparent: true, toneMapped: false,
+  });
+  const rings = [];
+  for (const tilt of [0.5, -0.9]) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.042, 0.002, 5, 32), ringMat);
+    ring.rotation.x = Math.PI / 2 + tilt;
+    group.add(ring);
+    rings.push(ring);
+  }
+
+  const halo = glowSprite(0x67d7ff, 0.14, 0.4);
+  group.add(halo);
+
+  const state = { fade: 1, hover: 0 };
+  group.userData.setFade = (k) => { state.fade = k; };
+  group.userData.setHover = (k) => { state.hover = k; };
+  group.userData.animate = (t, dt) => {
+    const { fade, hover } = state;
+    const beat = 0.9 + Math.sin(t * 2.4) * 0.1;
+    crystal.rotation.y += dt * (1.2 + hover * 2.5);
+    rings[0].rotation.z += dt * 0.9;
+    rings[1].rotation.z -= dt * 0.7;
+    crystalMat.opacity = 0.75 * fade;
+    crystalMat.emissiveIntensity = 0.6 + hover * 0.9;
+    ringMat.opacity = fade;
+    core.material.opacity = fade * (0.85 + hover * 0.15);
+    core.scale.setScalar(0.035 * beat * (1 + hover * 0.4));
+    halo.material.opacity = 0.4 * beat * fade * (1 + hover * 0.6);
+    halo.scale.setScalar(0.14 * (1 + hover * 0.35));
+  };
+  return group;
+}
+
+export function disposeSeekerPod(group) {
+  group.traverse((o) => {
+    o.geometry?.dispose();
+    o.material?.dispose();
+  });
+}
+
+// The garden's own answer to a fast target: a white-gold dart that turns
+// after what it's thrown at. Pooled by the game, so it stays at four
+// objects — a dart, a four-point fin set, and two sprites.
+export const SEEKER_COLOR = 0xffe9a0;
+export function makeSeekerMesh() {
+  const group = new THREE.Group();
+
+  const dart = new THREE.Mesh(new THREE.ConeGeometry(0.006, 0.05, 5),
+    new THREE.MeshBasicMaterial({ color: 0xfff6d8, toneMapped: false }));
+  dart.rotation.x = -Math.PI / 2; // apex forward, down -Z
+  dart.position.z = -0.01;
+  group.add(dart);
+
+  const fins = new THREE.Mesh(new THREE.OctahedronGeometry(0.012, 0),
+    new THREE.MeshBasicMaterial({ color: SEEKER_COLOR, toneMapped: false }));
+  fins.scale.set(1.4, 1.4, 0.35);
+  fins.position.z = 0.015;
+  group.add(fins);
+
+  const exhaust = glowSprite(SEEKER_COLOR, 0.05, 0.9);
+  exhaust.position.z = 0.03;
+  const tip = glowSprite(0xffffff, 0.025, 0.8);
+  tip.position.z = -0.036;
+  group.add(exhaust, tip);
+
+  const phase = Math.random() * Math.PI * 2;
+  group.userData.animate = (t, dt) => {
+    const flicker = 0.65 + Math.sin(t * 37 + phase) * 0.2 + Math.sin(t * 91 + phase) * 0.1;
+    exhaust.material.opacity = flicker;
+    exhaust.scale.setScalar(0.04 + flicker * 0.02);
+    fins.rotation.z += dt * 9;
+  };
+  return group;
+}
+
+export function disposeSeekerMesh(group) {
+  group.traverse((o) => {
+    o.geometry?.dispose();
+    o.material?.dispose();
+  });
 }
 
 // ---- bolt pool ---------------------------------------------------------------

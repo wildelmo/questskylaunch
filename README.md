@@ -46,7 +46,7 @@ them, for your worlds.
 
 Your controllers become **ray blasters**. Hold the trigger and they hose out
 laser bolts — nine a second, with a heat vein that runs cyan to red and an
-overheat if you never let go. There are three silhouettes to learn:
+overheat if you never let go. There are three silhouettes to learn first:
 
 - **Stingers** — magenta darts that weave in, snatch seeds off the nursery
   (and pocket-sized planets straight out of orbit), and sprint for a rift.
@@ -67,6 +67,38 @@ overheat if you never let go. There are three silhouettes to learn:
   garden at range and lobs slow plasma orbs that stun the sun and knock your
   orbits around. The orbs are shootable. So is the marauder, eventually.
 
+Survive to the middle waves and the poachers send the specialists:
+
+- **Wraiths** (wave 5 on) — violet knives that steal like stingers but
+  *cloak*. Bolts pass straight through a cloaked wraith; it shows itself for
+  a second and a half out of every three-and-a-bit, and it is always forced
+  into plain sight while its grab beam is lit, while it runs with your seed,
+  and for a beat after any bolt lands. Two bolts kill one. Planets don't
+  care whether it's visible.
+- **Wardens** (wave 6 on) — squat yellow escorts that arrive right behind a
+  harvester and throw a shield bubble around themselves. Every other ship
+  inside the bubble shrugs off bolts and seekers alike. Kill the warden
+  first (five bolts), or remember that the bubble is a field, not a wall:
+  a thrown planet swats straight through it.
+- **Siphons** (wave 7, then every third wave) — teal leeches that park a
+  hand's width above the sun, sink a needle into it, and pull the meals you
+  fed it back out, one every few seconds. The sun shrinks, its grip on the
+  garden loosens, and the nova you were building toward recedes. Drain it
+  to nothing and the siphon goes hunting planets instead — and comes back
+  the moment you feed the sun again.
+
+And one thing on your side. Armoured kills — harvesters, wardens, siphons,
+every marauder — sometimes leave a **seeker pod** behind, a cyan crystal
+that floats over and hangs at chest height, waiting. (Topping out the combo
+drops one too.) Reach out and *grab it*, with grip, pinch, or a click, and
+that hand's blaster loads six **seekers**: gold homing missiles that bend
+hard toward the nearest ship you point near, hit for two, and throw a
+splash at anything close. They fire at their own slower cadence, cost no
+heat, and only ever leave the barrel with a lock — point at empty sky and
+the trigger falls back to plain bolts, so a pod is never wasted. Seekers
+can't lock a cloaked wraith and won't get through a warden's bubble, but
+they'd rather chase the warden anyway. Twelve is the most a hand will hold.
+
 Waves escalate and score builds combos — kills within a couple of seconds of
 each other climb a ×2…×5 multiplier that literally plays a rising melody up
 the garden's own pentatonic scale. And the sandbox stays live the whole
@@ -78,7 +110,22 @@ In **Mixed Reality** the invasion is at its best: the rifts open around your
 actual room, and the ships punch straight through your real walls on their
 way to your coffee-table solar system. Best score is remembered between
 sessions. Nobody shoots back — the stakes are your worlds, not your health.
-The siege runs until you press the beacon again and the survivors flee.
+The siege runs until you press the beacon again and the survivors flee, and
+from wave 4 the rifts open on more than one side of you — the ships take
+turns coming through every open one, so keep turning around.
+
+## Leaving
+
+Beside the beacon stands the **exit hatch**: a cyan ring on a pedestal with
+EXIT written under it. Rest a hand on it — grip, trigger, or a pinch — and
+keep holding. The ring fills over a second or so while a tone rises; let go
+or drift off early and nothing happens. When it fills, the VR session ends
+cleanly and you're back on the 2D page with the buttons, from where the
+Quest's system button takes you home. (A web page can't close the browser
+on its own, so this is the proper way out.) If a siege was running, the
+survivors flee as you leave: nobody loses worlds to a fight they walked out
+of. The hatch lives in the room, not the garden, so a world grip can never
+scale it away or leave it behind.
 
 **Live:** <https://wildelmo.github.io/questskylaunch/> — open it in the Meta
 Quest Browser and press **Enter VR**. Every push to `main` redeploys it.
@@ -103,14 +150,17 @@ the only dependency.
 | **X** | clear all planets |
 | **Y** | hide the info panel |
 | **The red beacon** | start / end the invasion |
-| **Trigger** (during an invasion) | hold: fire the ray blaster |
-| **Grip** (during an invasion) | still grabs and throws |
+| **Trigger** (during an invasion) | hold: fire the ray blaster — or seekers, when loaded and locked |
+| **Grip** (during an invasion) | still grabs and throws — and snatches seeker pods |
+| **The exit hatch** | hold a hand on it to leave VR |
 
 On a flat screen it degrades gracefully: drag a planet to throw it, drag empty
 space to look around, scroll to zoom, click to shoot (<kbd>G</kbd> or the
 beacon starts the invasion), <kbd>T</kbd>/<kbd>Space</kbd>/<kbd>C</kbd>
 and <kbd>1</kbd>/<kbd>2</kbd> for trails, pause, clear, and time;
-<kbd>0</kbd> resets the view.
+<kbd>0</kbd> resets the view. Click a seeker pod to grab it; hold the mouse
+on the exit hatch to try the hold (there's no session to end on a flat
+screen, so it just settles).
 
 ## Running it
 
@@ -125,10 +175,13 @@ open `https://<your-computer's-LAN-IP>:5173` in the Quest Browser, and accept
 the certificate warning once.
 
 ```bash
-npm test             # physics + invasion sanity checks (orbits, merges, waves, heat)
+npm test             # physics + invasion sanity checks (orbits, merges, waves, heat,
+                     # rift round-robin, cloak windows, seeker steering)
 npm run build        # production bundle in dist/
 node tools/smoke.mjs # loads the built app in headless Chromium and pokes it —
-                     # including starting an invasion and shooting down a ship
+                     # an invasion, a kill, a tow, both rifts spawning, a wraith
+                     # cloaking, a warden shielding, a siphon draining, a pod
+                     # loading seekers that kill, and the exit hatch's hold
 ```
 
 ## How it's put together
@@ -145,13 +198,19 @@ src/
                orbit trails, the seed nursery
   interact.js  grabbing/throwing for controllers, tracked hands, and mouse;
                the two-handed world grip; orbit assist; the prediction arc;
-               the trigger's double life as a blaster
-  waves.js     the invasion's pure arithmetic — wave composition, combos,
-               blaster heat, swept-segment hits — testable without a browser
-  ships.js     procedural enemy hulls (stinger / harvester / marauder),
-               rifts, the beacon, the blaster, pooled bolts/debris/popups
+               the trigger's double life as a blaster; grabbing seeker pods;
+               the exit hatch's hold-to-leave
+  waves.js     the invasion's pure arithmetic — wave composition and queue
+               order, which rift spawns next, combos, blaster heat, the
+               wraith's cloak window, seeker steering, swept-segment hits —
+               testable without a browser
+  ships.js     procedural enemy hulls (stinger / harvester / marauder /
+               wraith / warden / siphon), the shield bubble, rifts, the
+               beacon, the blaster, seeker pods and missiles, the exit hatch,
+               pooled bolts/debris/popups
   invasion.js  the war itself: the wave state machine, ship AI that steals
-               seeds and tractors planets, collisions, scoring, the nova sweep
+               seeds, tractors planets, cloaks, escorts and drains the sun,
+               seeker pods and homing, collisions, scoring, the nova sweep
   audio.js     all sound, synthesized in WebAudio — spatialised notes,
                FM bells, the nova, and the invasion's zaps, klaxons and
                tractor-drones; nothing is a file

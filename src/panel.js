@@ -4,7 +4,7 @@ import { LAYOUT } from './config.js';
 // A floating glass card that teaches the controls and shows live stats.
 // It's one canvas texture, redrawn only when something it shows changes.
 
-const W = 640, H = 830;
+const W = 640, H = 900;
 
 export class InfoPanel {
   constructor(scene) {
@@ -100,6 +100,7 @@ export class InfoPanel {
       ['B', 'pause / resume'],
       ['X', 'clear all planets'],
       ['Y', 'hide this panel'],
+      ['EXIT HATCH', 'hold a hand on it to leave VR'],
     ];
     let y = 208;
     for (const [key, desc] of rows) {
@@ -109,7 +110,7 @@ export class InfoPanel {
       g.fillStyle = 'rgba(235, 242, 255, 0.92)';
       g.font = '26px "Segoe UI", system-ui, sans-serif';
       g.fillText(desc, 244, y);
-      y += 42;
+      y += 40;
     }
 
     line(g, 40, y - 10, W - 40, y - 10);
@@ -166,10 +167,18 @@ export class InfoPanel {
     g.font = '26px "Segoe UI", system-ui, sans-serif';
     g.fillText(`best ${inv.best}`, W / 2, 336);
 
-    if (inv.mult > 1) {
+    // The hot line: a live combo, a loaded magazine of seekers, or both.
+    const combo = inv.mult > 1 ? `COMBO ×${inv.mult}` : null;
+    const seekers = inv.seekers > 0 ? `SEEKERS ${inv.seekers}` : null;
+    g.font = '700 44px "Segoe UI", system-ui, sans-serif';
+    if (combo && seekers) {
       g.fillStyle = '#8dff5a';
-      g.font = '700 44px "Segoe UI", system-ui, sans-serif';
-      g.fillText(`COMBO ×${inv.mult}`, W / 2, 396);
+      g.fillText(combo, W * 0.29, 396);
+      g.fillStyle = '#ffe9a0';
+      g.fillText(seekers, W * 0.71, 396);
+    } else if (combo || seekers) {
+      g.fillStyle = combo ? '#8dff5a' : '#ffe9a0';
+      g.fillText(combo ?? seekers, W / 2, 396);
     }
 
     redLine(g, 40, 424, W - 40, 424);
@@ -178,30 +187,33 @@ export class InfoPanel {
     const rows = [
       ['TRIGGER', 'hold: hose out laser bolts'],
       ['GRIP', 'still grabs — planets swat ships'],
-      ['WATCH', 'harvesters tow your worlds away'],
+      ['POD', 'grab one: homing seekers'],
+      ['WRAITH', 'only shootable while it shows'],
+      ['WARDEN', 'kill it, or swat through its bubble'],
+      ['SIPHON', 'drains the sun — nova first'],
       ['NOVA', 'feed the sun 8: it clears the sky'],
       ['BEACON', 'press again to end the siege'],
     ];
-    let y = 478;
+    let y = 468;
     for (const [key, desc] of rows) {
       g.fillStyle = '#ff8adf';
-      g.font = '600 26px "Segoe UI", system-ui, sans-serif';
+      g.font = '600 25px "Segoe UI", system-ui, sans-serif';
       g.fillText(key, 48, y);
       g.fillStyle = 'rgba(255, 235, 230, 0.92)';
-      g.font = '25px "Segoe UI", system-ui, sans-serif';
-      g.fillText(desc, 208, y);
-      y += 46;
+      g.font = '24px "Segoe UI", system-ui, sans-serif';
+      g.fillText(desc, 178, y);
+      y += 40;
     }
 
-    redLine(g, 40, y - 12, W - 40, y - 12);
+    redLine(g, 40, y - 14, W - 40, y - 14);
 
     g.textAlign = 'center';
     g.fillStyle = 'rgba(255, 190, 180, 0.9)';
     g.font = '25px "Segoe UI", system-ui, sans-serif';
-    g.fillText(`${inv.kills} ships down   ·   ${inv.worldsLost} worlds lost`, W / 2, y + 36);
+    g.fillText(`${inv.kills} ships down   ·   ${inv.worldsLost} worlds lost`, W / 2, y + 26);
     g.fillStyle = 'rgba(140, 170, 210, 0.9)';
     g.font = '24px "Segoe UI", system-ui, sans-serif';
-    g.fillText(`${this.stats.bodies} planets   ·   sun fed ${this.stats.meals}/${this.stats.mealsToNova}`, W / 2, H - 48);
+    g.fillText(`${this.stats.bodies} planets   ·   sun fed ${this.stats.meals}/${this.stats.mealsToNova}`, W / 2, H - 44);
   }
 }
 

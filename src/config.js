@@ -83,6 +83,15 @@ export const LAYOUT = {
   panelTilt: -0.55,        // radians of yaw toward the player
 };
 
+// The exit hatch: the one control that lives in the ROOM, not the garden —
+// it never scales or drifts away with a world grip. Hold a hand on it and
+// the ring fills; let go early and nothing happens.
+export const EXIT = {
+  pos: [1.06, 1.0, -0.42],
+  holdTime: 1.2,           // seconds of hold before the session ends
+  reach: 0.11,             // metres from the ring that count as "on it"
+};
+
 // The invasion: alien poachers rift in to steal your worlds. Distances are
 // world-space metres — ships fly through the *room*, not the garden group, so
 // in mixed reality they punch through your actual walls. Everything the
@@ -119,6 +128,12 @@ export const INVASION = {
     stinger:   { hp: 1,  hitRadius: 0.11, speed: 1.15, turnRate: 3.4, score: 100 },
     harvester: { hp: 6,  hitRadius: 0.16, speed: 0.55, turnRate: 2.2, score: 400 },
     marauder:  { hp: 14, hitRadius: 0.22, speed: 0.45, turnRate: 1.2, score: 1500 },
+    // The later arrivals. A wraith is a stinger you can only shoot while it
+    // shows itself; a warden is an escort whose bubble makes its charge
+    // bulletproof; a siphon is a leech that drains the sun you fed.
+    wraith:    { hp: 2,  hitRadius: 0.11, speed: 1.0,  turnRate: 3.2, score: 250 },
+    warden:    { hp: 5,  hitRadius: 0.14, speed: 0.7,  turnRate: 2.6, score: 500 },
+    siphon:    { hp: 4,  hitRadius: 0.13, speed: 0.6,  turnRate: 2.0, score: 600 },
   },
   fleeSpeed: 1.9,                 // couriers sprint once they have your world
   tractorReel: 1.4,               // seconds to reel a caught planet to the keel
@@ -128,6 +143,43 @@ export const INVASION = {
   orbEverySeconds: 6.5,
   orbHitRadius: 0.09,
   orbKnock: 0.9,                  // impulse a plasma hit gives a planet (m/s)
+
+  // Wraiths cloak on a cycle: visible for `visibleFor` seconds out of every
+  // `cloakCycle`, and forced visible while telegraphing a theft, fleeing
+  // with cargo, or for `revealOnHit` seconds after a bolt finds them.
+  wraith: { cloakCycle: 3.4, visibleFor: 1.5, revealOnHit: 1.2 },
+  // Wardens shadow a harvester (or the biggest ship aloft) and throw a
+  // bubble this big around themselves; every OTHER ship inside it shrugs
+  // off bolts. Planets still swat straight through — physics beats fields.
+  warden: { shieldRadius: 0.55, escortOffset: [0.32, 0.22, 0.18] },
+  // Siphons park this far above the sun and pull one meal back out of it
+  // every `drainEvery` seconds — the sun shrinks, its pull weakens, and
+  // your nova gets further away.
+  siphon: { standoff: 0.55, drainEvery: 4.5 },
+
+  // Seeker pods: the one upgrade. Armoured kills sometimes drop a pod; grab
+  // it out of the air (grip, pinch, or click) and that hand's blaster loads
+  // a handful of homing missiles. They only leave the barrel with a lock,
+  // so the trigger never wastes one on empty sky.
+  seekers: {
+    perPod: 6,
+    maxLoaded: 12,
+    speed: 4.2,
+    turnRate: 7,                  // how hard a seeker can bend (per second)
+    life: 3.2,                    // seconds of fuel
+    rate: 2.6,                    // launches per second while loaded
+    damage: 2,
+    splashRadius: 0.42,           // metres; nearby ships take splashDamage
+    splashDamage: 1,
+    lockCone: 0.9,                // radians; a target must be this near the aim
+    lockRange: 9,
+    podLife: 12,                  // seconds a pod waits before fizzling
+    podDrift: 0.28,               // m/s the pod floats toward the player
+    podRest: 0.55,                // it stops this far from your head
+    maxPods: 3,
+    dropChance: { harvester: 0.35, warden: 0.5, siphon: 0.65, marauder: 1 },
+    comboDrop: true,              // reaching the combo cap also drops one
+  },
 
   score: {
     orb: 50, swat: 250, rescue: 150,
