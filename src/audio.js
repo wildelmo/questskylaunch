@@ -678,6 +678,344 @@ export class GardenAudio {
     noise.stop(t + 0.4);
   }
 
+  // ---- seekers, shields, wraiths, siphons, the hatch ----------------------
+  // New voices, same rules. Seekers borrow the garden's bright pentatonic
+  // (they're gold-white, they should sound it), the Warden's shield is glass,
+  // the Wraith is a whisper going either way, the Siphon is the sun's own
+  // hunger turned against it, and the hatch is a soft goodbye.
+
+  // A seeker pod tumbling out of a kill: C5 up to G5 with an octave shimmer.
+  podDrop(pos) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const pan = this.panner(pos);
+    [523.25, 783.99].forEach((f, i) => {
+      const t0 = t + i * 0.11;
+      const o = this.ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      const g = this.envelope(0.11, 0.006, 0.55, t0);
+      o.connect(g).connect(pan);
+      o.start(t0);
+      o.stop(t0 + 0.6);
+
+      const o2 = this.ctx.createOscillator();
+      o2.type = 'sine';
+      o2.frequency.value = f * 2;
+      const g2 = this.envelope(0.03, 0.01, 0.4, t0);
+      o2.connect(g2).connect(pan);
+      o2.start(t0);
+      o2.stop(t0 + 0.45);
+    });
+  }
+
+  // The hand snatches a pod and the blaster swallows it: a reload clack,
+  // then three quick notes climbing into the gun. Non-spatial — it's yours.
+  podPickup() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const noise = this.noiseSource(false);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 3;
+    bp.frequency.value = 1800;
+    const g = this.envelope(0.14, 0.001, 0.05, t);
+    noise.connect(bp).connect(g).connect(this.master);
+    noise.start(t);
+    noise.stop(t + 0.06);
+
+    [523.25, 659.26, 783.99].forEach((f, i) => {
+      const t0 = t + 0.05 + i * 0.06;
+      const o = this.ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      const g2 = this.envelope(0.09, 0.005, 0.1, t0);
+      o.connect(g2).connect(this.master);
+      o.start(t0);
+      o.stop(t0 + 0.12);
+    });
+  }
+
+  // One seeker off the muzzle: a whoosh with a chirp climbing under it.
+  // Up to three a second, so it's over in a quarter-second.
+  seekerLaunch(pos) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const pan = this.panner(pos);
+    const noise = this.noiseSource(false);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 1.5;
+    bp.frequency.setValueAtTime(800, t);
+    bp.frequency.exponentialRampToValueAtTime(3000, t + 0.25);
+    const g = this.envelope(0.12, 0.01, 0.24, t);
+    noise.connect(bp).connect(g).connect(pan);
+    noise.start(t);
+    noise.stop(t + 0.28);
+
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(320, t);
+    o.frequency.exponentialRampToValueAtTime(1100, t + 0.22);
+    const g2 = this.envelope(0.06, 0.005, 0.22, t);
+    o.connect(g2).connect(pan);
+    o.start(t);
+    o.stop(t + 0.25);
+  }
+
+  // A seeker going off: a crack, then a compact boom. Heavier than a bolt
+  // landing, lighter than a ship coming apart.
+  seekerHit(pos) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const pan = this.panner(pos);
+    const noise = this.noiseSource(false);
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 3200;
+    const g = this.envelope(0.18, 0.001, 0.06, t);
+    noise.connect(hp).connect(g).connect(pan);
+    noise.start(t);
+    noise.stop(t + 0.08);
+
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(180, t);
+    o.frequency.exponentialRampToValueAtTime(50, t + 0.3);
+    const g2 = this.envelope(0.2, 0.004, 0.32, t);
+    o.connect(g2).connect(pan);
+    o.start(t);
+    o.stop(t + 0.36);
+  }
+
+  // A bolt glancing off a Warden's bubble: a glassy FM ping. It can happen
+  // many times a second, so it stays small and short.
+  shieldDeflect(pos) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const carrier = this.ctx.createOscillator();
+    carrier.frequency.value = 1800 * (1 + (Math.random() - 0.5) * 0.06);
+    const mod = this.ctx.createOscillator();
+    mod.frequency.value = 2520;
+    const modGain = this.ctx.createGain();
+    modGain.gain.setValueAtTime(600, t);
+    modGain.gain.exponentialRampToValueAtTime(5, t + 0.05);
+    mod.connect(modGain).connect(carrier.frequency);
+    const g = this.envelope(0.06, 0.001, 0.15, t);
+    carrier.connect(g).connect(this.panner(pos));
+    carrier.start(t); mod.start(t);
+    carrier.stop(t + 0.17); mod.stop(t + 0.17);
+  }
+
+  // The shield bubble itself: two barely-detuned high sines, a slow
+  // tremolo, glass held up to the light. Returns { move(pos), stop() }.
+  shieldHum(pos) {
+    if (!this.ctx) return null;
+    const t = this.ctx.currentTime;
+    const pan = this.panner(pos);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.018, t + 0.3);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1200;
+    g.connect(lp).connect(pan);
+    const lfo = this.ctx.createOscillator();
+    lfo.frequency.value = 2.3;
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 0.006;
+    lfo.connect(lfoGain).connect(g.gain);
+    lfo.start(t);
+    const oscs = [lfo];
+    for (const f of [640, 643]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      o.connect(g);
+      o.start(t);
+      oscs.push(o);
+    }
+    return {
+      move: (p) => {
+        const now = this.ctx.currentTime;
+        pan.positionX?.setTargetAtTime(p.x, now, 0.06);
+        pan.positionY?.setTargetAtTime(p.y, now, 0.06);
+        pan.positionZ?.setTargetAtTime(p.z, now, 0.06);
+      },
+      stop: () => {
+        const now = this.ctx.currentTime;
+        g.gain.cancelScheduledValues(now);
+        g.gain.setTargetAtTime(0.0001, now, 0.1);
+        lfoGain.gain.setTargetAtTime(0, now, 0.1);
+        for (const o of oscs) o.stop(now + 0.6);
+      },
+    };
+  }
+
+  // A Wraith fading out (cloaking) or back in: a shimmer that falls away or
+  // gathers, with a quiet gliss underneath going the same direction.
+  cloakShift(pos, cloaking) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const pan = this.panner(pos);
+    const noise = this.noiseSource(false);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 2.5;
+    bp.frequency.setValueAtTime(cloaking ? 4200 : 500, t);
+    bp.frequency.exponentialRampToValueAtTime(cloaking ? 500 : 4200, t + 0.4);
+    const g = this.envelope(0.1, 0.02, 0.4, t);
+    noise.connect(bp).connect(g).connect(pan);
+    noise.start(t);
+    noise.stop(t + 0.45);
+
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(cloaking ? 1320 : 440, t);
+    o.frequency.exponentialRampToValueAtTime(cloaking ? 440 : 1320, t + 0.38);
+    const g2 = this.envelope(0.04, 0.02, 0.38, t);
+    o.connect(g2).connect(pan);
+    o.start(t);
+    o.stop(t + 0.42);
+  }
+
+  // The Siphon feeding: a low sawtooth under a lowpass that slowly opens and
+  // closes its mouth, with a breath of noise in the same throat.
+  // Returns { move(pos), stop() }.
+  siphonHum(pos) {
+    if (!this.ctx) return null;
+    const t = this.ctx.currentTime;
+    const pan = this.panner(pos);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.03, t + 0.5);
+    g.connect(pan);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 275;
+    lp.Q.value = 4;
+    lp.connect(g);
+    const lfo = this.ctx.createOscillator();
+    lfo.frequency.value = 0.5;
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 125;
+    lfo.connect(lfoGain).connect(lp.frequency);
+    lfo.start(t);
+    const o = this.ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = 48;
+    o.connect(lp);
+    o.start(t);
+    const noise = this.noiseSource(true);
+    const ng = this.ctx.createGain();
+    ng.gain.value = 0.25;
+    noise.connect(ng).connect(lp);
+    noise.start(t);
+    const srcs = [lfo, o, noise];
+    return {
+      move: (p) => {
+        const now = this.ctx.currentTime;
+        pan.positionX?.setTargetAtTime(p.x, now, 0.06);
+        pan.positionY?.setTargetAtTime(p.y, now, 0.06);
+        pan.positionZ?.setTargetAtTime(p.z, now, 0.06);
+      },
+      stop: () => {
+        const now = this.ctx.currentTime;
+        g.gain.cancelScheduledValues(now);
+        g.gain.setTargetAtTime(0.0001, now, 0.12);
+        for (const s of srcs) s.stop(now + 0.7);
+      },
+    };
+  }
+
+  // One meal pulled out of the sun: a long fall from E5 to A2 with a gulp
+  // swelling under it. You just lost something, and it should sound like it.
+  sunDrained(pos) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const pan = this.panner(pos);
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(660, t);
+    o.frequency.exponentialRampToValueAtTime(110, t + 0.6);
+    const g = this.envelope(0.2, 0.01, 0.65, t);
+    o.connect(g).connect(pan);
+    o.start(t);
+    o.stop(t + 0.7);
+
+    const noise = this.noiseSource(false);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(1200, t);
+    lp.frequency.exponentialRampToValueAtTime(200, t + 0.5);
+    const g2 = this.envelope(0.12, 0.25, 0.3, t);
+    noise.connect(lp).connect(g2).connect(pan);
+    noise.start(t);
+    noise.stop(t + 0.6);
+  }
+
+  // Holding the exit hatch: a soft tone that climbs an octave with the hold,
+  // ticking at each quarter. Returns { set(k), stop() }; k runs 0..1.
+  exitHold() {
+    if (!this.ctx) return null;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = 220;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.15);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    let lastStep = 0;
+    let done = false;
+    return {
+      set: (k) => {
+        if (done) return;
+        const now = this.ctx.currentTime;
+        k = Math.max(0, Math.min(1, k));
+        o.frequency.setTargetAtTime(220 * Math.pow(2, k), now, 0.05);
+        const step = Math.floor(k / 0.25);
+        if (step !== lastStep) {
+          if (step > lastStep) {
+            const tick = this.ctx.createOscillator();
+            tick.type = 'square';
+            tick.frequency.value = 1400 + step * 200;
+            const tg = this.envelope(0.03, 0.001, 0.03, now);
+            tick.connect(tg).connect(this.master);
+            tick.start(now);
+            tick.stop(now + 0.04);
+          }
+          lastStep = step;
+        }
+      },
+      stop: () => {
+        if (done) return;
+        done = true;
+        const now = this.ctx.currentTime;
+        g.gain.cancelScheduledValues(now);
+        g.gain.setTargetAtTime(0.0001, now, 0.03);
+        o.stop(now + 0.15);
+      },
+    };
+  }
+
+  // The hatch completes: three triangle notes stepping down an octave.
+  // The session ends under this, so it's a goodbye, not a game over.
+  exitConfirm() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    [440, 330, 220].forEach((f, i) => {
+      const o = this.ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      const g = this.envelope(0.09, 0.02, 1.0, t + i * 0.1);
+      o.connect(g).connect(this.master);
+      o.start(t + i * 0.1);
+      o.stop(t + i * 0.1 + 1.1);
+    });
+  }
+
   envelope(peak, attack, release, t) {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);

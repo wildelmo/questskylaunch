@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SUN, PHYSICS, LAYOUT, PLANET_COLORS, SEED_RADII } from './config.js';
+import { SUN, PHYSICS, LAYOUT, EXIT, PLANET_COLORS, SEED_RADII } from './config.js';
 import { Sim } from './physics.js';
 import { GardenAudio } from './audio.js';
 import { makeStarfield, makeSun, makePlatform } from './cosmos.js';
@@ -10,6 +10,7 @@ import { buildTexturePool, ARCHETYPES } from './textures.js';
 import { InfoPanel } from './panel.js';
 import { Interactions } from './interact.js';
 import { Invasion } from './invasion.js';
+import { makeExitHatch } from './ships.js';
 
 // GRAVITY GARDEN
 // A quiet corner of space, a small hungry sun, and as many planets as you
@@ -254,6 +255,16 @@ const actions = {
   clearPlanets: () => garden.clearPlanets(),
   togglePanel: () => { panel.toggle(); audio.click(); },
   resetView: () => { garden.resetView(); audio.click(); },
+  // The way out. A page can't close the Quest Browser itself; ending the
+  // XR session is the clean exit — you land back on the 2D page with the
+  // buttons, and the system button takes it from there. On a flat screen
+  // there is no session to end, so the hatch is just a very calm button.
+  exitXR: () => {
+    const session = renderer.xr.getSession();
+    if (!session) { audio.click(); return false; }
+    session.end();
+    return true;
+  },
 };
 
 const interactions = new Interactions({
@@ -276,7 +287,18 @@ interactions.bindInvasion({
   beacon: invasion.beacon,
   toggle: () => { invasion.toggle(); },
   isActive: () => invasion.active,
+  invasion,
 });
+
+// ---- the exit hatch ---------------------------------------------------------------
+
+// Lives in the room beside the beacon, never in the garden group: a world
+// grip can't scale it away or leave it behind. Hold a hand on it to leave.
+const hatch = makeExitHatch();
+hatch.position.set(...EXIT.pos);
+hatch.lookAt(0, EXIT.pos[1], 0.4);
+scene.add(hatch);
+interactions.bindExit({ hatch, onExit: () => actions.exitXR() });
 
 // ---- the opening scene ------------------------------------------------------------
 
@@ -362,6 +384,9 @@ renderer.xr.addEventListener('sessionstart', () => {
 renderer.xr.addEventListener('sessionend', () => {
   setSpaceScenery(true);
   overlay.classList.remove('hidden');
+  interactions.cancelExitHold();
+  // Nobody should lose worlds to a siege they walked out of.
+  if (invasion.active) invasion.stop();
 });
 
 // Sound needs a user gesture on desktop too.
@@ -386,6 +411,7 @@ renderer.setAnimationLoop(() => {
   sim.step(dt);
   garden.update(dt, t);
   invasion.update(dt, t);
+  hatch.userData.animate(t, dt);
   sunState.update(t, dt);
   for (const child of starfield.children) {
     child.userData.starMat && (child.userData.starMat.uniforms.uTime.value = t);
@@ -428,6 +454,6 @@ window.addEventListener('resize', () => {
 
 // A debug handle for automated smoke tests (and the curious).
 window.__gg = {
-  sim, garden, renderer, camera, gardenGroup, interactions, invasion,
+  sim, garden, renderer, camera, gardenGroup, interactions, invasion, hatch, actions,
   setSpaceScenery, starfield, platform,
 };

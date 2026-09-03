@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { THROW, TIME, PREDICT, SUN, ASSIST, GRIP } from './config.js';
+import { THROW, TIME, PREDICT, SUN, ASSIST, GRIP, EXIT } from './config.js';
 import { setShellState } from './planets.js';
 
 // Grabbing, throwing, steering time, and gripping space itself — for XR
@@ -74,15 +74,28 @@ export class Interactions {
     this.beacon = null;          // the pressable siege beacon (garden space)
     this.beaconAction = null;
     this.invasionOn = () => false;
+    this.invasion = null;        // for seeker pods: findPod / pickupPod / hoverPod
+
+    // The exit hatch: a world-space control you hold, not press.
+    this.hatch = null;
+    this.onExit = null;
+    this.exitHold = null;        // {grabber, t, sound} while a hand is on it
+    this.exitCooldown = 0;
 
     this.setupXR();
     this.setupDesktop(dom);
   }
 
-  bindInvasion({ beacon, toggle, isActive }) {
+  bindInvasion({ beacon, toggle, isActive, invasion }) {
     this.beacon = beacon;
     this.beaconAction = toggle;
     this.invasionOn = isActive;
+    this.invasion = invasion ?? null;
+  }
+
+  bindExit({ hatch, onExit }) {
+    this.hatch = hatch;
+    this.onExit = onExit;
   }
 
   toGarden(v) {
@@ -207,13 +220,32 @@ export class Interactions {
     return grabber.grip ? grabber.grip.getWorldPosition(out) : out.copy(grabber.worldPos);
   }
 
-  // Nearest free planet or nursery seed within reach of a garden-space point.
-  // Reach grows as the garden shrinks, so a zoomed-out garden is still easy
-  // to pick from.
-  findGrabbable(p) {
+  // Nearest free planet or nursery seed within reach of a garden-space point
+  // — or the beacon, the exit hatch, or a seeker pod, which live in the room
+  // and are checked against the hand's world position. Reach grows as the
+  // garden shrinks, so a zoomed-out garden is still easy to pick from.
+  findGrabbable(p, worldP = null) {
     const reach = THROW.grabRadius / this.gardenScale();
     let best = null;
     let bestDist = Infinity;
+    if (worldP && this.hatch) {
+      // Room-space distance, expressed in garden units so it competes fairly.
+      const d = (this.hatch.getWorldPosition(_v3).distanceTo(worldP) - 0.03) / this.gardenScale();
+      if (d < EXIT.reach / this.gardenScale() && d < bestDist) {
+        best = { kind: 'exit' };
+        bestDist = d;
+      }
+    }
+    if (worldP && this.invasion) {
+      const pod = this.invasion.findPod(worldP, THROW.grabRadius);
+      if (pod) {
+        const d = (worldP.distanceTo(pod.pos) - 0.05) / this.gardenScale();
+        if (d < bestDist) {
+          best = { kind: 'pod', pod };
+          bestDist = d;
+        }
+      }
+    }
     for (const body of this.sim.bodies) {
       if (body.held || body.abducted) continue; // a tractored world is contested by bolts, not hands
       const d = p.distanceTo(body.pos) - body.radius;
@@ -244,12 +276,20 @@ export class Interactions {
 
   tryGrab(grabber) {
     if (grabber.held) return;
-    const target = this.findGrabbable(grabber.pos);
+    const target = this.findGrabbable(grabber.pos, grabber.worldPos);
     if (!target) return;
 
     if (target.kind === 'beacon') {
       this.beaconAction?.();
       grabber.pulse(0.6, 90);
+      return;
+    }
+    if (target.kind === 'exit') {
+      this.startExitHold(grabber);
+      return;
+    }
+    if (target.kind === 'pod') {
+      this.invasion.pickupPod(target.pod, this.grabbers.indexOf(grabber));
       return;
     }
 
@@ -285,6 +325,7 @@ export class Interactions {
   }
 
   release(grabber, silent = false) {
+    if (this.exitHold?.grabber === grabber) this.cancelExitHold();
     const body = grabber.held;
     grabber.held = null;
     if (!body || !body.alive) return;
@@ -335,9 +376,54 @@ export class Interactions {
       grabber.velocity(body.vel);
     }
 
+    this.updateExitHold(dt);
     this.updateHover();
     this.updatePredictions();
     this.updateHandJoints(inXR);
+  }
+
+  // ---- the exit hatch ----------------------------------------------------------
+
+  // Leaving is a hold, not a press: a hand rests on the hatch while a ring
+  // fills over EXIT.holdTime seconds. Let go, drift off, or release the
+  // button early and nothing happens.
+  startExitHold(grabber) {
+    if (this.exitHold || this.exitCooldown > 0) return;
+    this.exitHold = { grabber, t: 0, sound: this.audio.exitHold?.() ?? null };
+    this.audio.click();
+    grabber.pulse(0.3, 30);
+  }
+
+  cancelExitHold() {
+    if (!this.exitHold) return;
+    this.exitHold.sound?.stop();
+    this.exitHold = null;
+    this.hatch?.userData.setHold(0);
+  }
+
+  updateExitHold(dt) {
+    if (this.exitCooldown > 0) {
+      this.exitCooldown -= dt;
+      if (this.exitCooldown <= 0) this.hatch?.userData.setHold(0);
+    }
+    const hold = this.exitHold;
+    if (!hold || !this.hatch) return;
+    const g = hold.grabber;
+    const stillOn = g.pressCount > 0
+      && this.hatch.getWorldPosition(_v3).distanceTo(g.worldPos) < EXIT.reach * 1.6;
+    if (!stillOn) { this.cancelExitHold(); return; }
+    hold.t += dt;
+    const k = Math.min(1, hold.t / EXIT.holdTime);
+    this.hatch.userData.setHold(k);
+    hold.sound?.set(k);
+    if (k >= 1) {
+      hold.sound?.stop();
+      this.exitHold = null;
+      this.exitCooldown = 1.2;
+      this.audio.exitConfirm?.();
+      g.pulse(0.8, 200);
+      this.onExit?.();
+    }
   }
 
   // Both hands pressed on empty space: grab the fabric of the garden itself.
@@ -397,14 +483,18 @@ export class Interactions {
   updateHover() {
     const nowHovered = new Set();
     let beaconHover = false;
+    let hatchHover = false;
     for (const grabber of this.grabbers) {
       if (!grabber.active || grabber.held) continue;
-      const target = this.findGrabbable(grabber.pos);
+      const target = this.findGrabbable(grabber.pos, grabber.worldPos);
       if (target?.kind === 'planet') nowHovered.add(target.body.mesh);
       else if (target?.kind === 'seed' && target.slot.mesh) nowHovered.add(target.slot.mesh);
       else if (target?.kind === 'beacon') beaconHover = true;
+      else if (target?.kind === 'exit') hatchHover = true;
+      else if (target?.kind === 'pod') this.invasion?.hoverPod(target.pod);
     }
     this.beacon?.userData.setHover(beaconHover ? 1 : 0);
+    this.hatch?.userData.setHover(hatchHover || this.exitHold ? 1 : 0);
     for (const mesh of this.hovered) {
       if (!nowHovered.has(mesh)) setShellState(mesh, 'none');
     }
@@ -512,6 +602,9 @@ export class Interactions {
       }
       for (const slot of this.garden.nursery.slots) if (slot.mesh) meshes.push(slot.mesh);
       if (this.beacon) meshes.push(this.beacon);
+      if (this.hatch) meshes.push(this.hatch);
+      const podMeshes = this.invasion?.podMeshes() ?? [];
+      meshes.push(...podMeshes);
       const hits = this.raycaster.intersectObjects(meshes, true);
 
       if (hits.length) {
@@ -519,6 +612,23 @@ export class Interactions {
         while (mesh.parent && !meshes.includes(mesh)) mesh = mesh.parent;
         if (mesh === this.beacon) {
           this.beaconAction?.();
+          return;
+        }
+        if (podMeshes.includes(mesh)) {
+          const pod = this.invasion.podOfMesh(mesh);
+          if (pod) this.invasion.pickupPod(pod, 2);
+          return;
+        }
+        if (mesh === this.hatch) {
+          // The hold runs off the mouse grabber like any hand: park it on
+          // the hatch and keep the button down.
+          this.hatch.getWorldPosition(this.mouseGrabber.worldPos);
+          this.mouseGrabber.pos.copy(this.mouseGrabber.worldPos);
+          this.toGarden(this.mouseGrabber.pos);
+          this.mouseGrabber.active = true;
+          this.mouseGrabber.pressCount = 1;
+          this.startExitHold(this.mouseGrabber);
+          dom.setPointerCapture(e.pointerId);
           return;
         }
         mesh.getWorldPosition(_v1);
@@ -556,6 +666,7 @@ export class Interactions {
     });
 
     const endDrag = () => {
+      if (this.exitHold?.grabber === this.mouseGrabber) this.cancelExitHold();
       if (this.mouseGrabber.held) {
         this.release(this.mouseGrabber);
       }

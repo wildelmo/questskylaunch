@@ -5,6 +5,7 @@
 import {
   waveComposition, spawnIntervalFor, waveSpeedMul, comboAdvance, comboMultiplier,
   heatAfterShot, heatCool, canFire, segmentSphereHit, waveClearBonus, strafeThrough,
+  buildQueue, nextRiftIndex, cloakAmount, steerHeading,
 } from '../src/waves.js';
 import { INVASION } from '../src/config.js';
 
@@ -42,6 +43,97 @@ function check(name, ok, detail = '') {
     spawnIntervalFor(1) > spawnIntervalFor(6)
     && spawnIntervalFor(50) >= INVASION.spawnInterval[0]);
   check('ship speed growth is capped', waveSpeedMul(99) <= 1.5 && waveSpeedMul(1) === 1);
+
+  // The late arrivals wait until the first three silhouettes are learned.
+  check('no wraiths, wardens or siphons in the opening waves',
+    [1, 2, 3, 4].every((n) => {
+      const w = waveComposition(n);
+      return w.wraiths === 0 && w.wardens === 0 && w.siphons === 0;
+    }));
+  check('wraiths arrive at wave 5', waveComposition(5).wraiths === 1);
+  check('wardens arrive at wave 6', waveComposition(6).wardens === 1);
+  check('a siphon every third wave from 7',
+    waveComposition(7).siphons === 1 && waveComposition(8).siphons === 0
+    && waveComposition(10).siphons === 1 && waveComposition(13).siphons === 1);
+  check('late-wave escorts are capped',
+    waveComposition(40).wraiths <= 4 && waveComposition(40).wardens <= 2);
+  let monotoneAll = true;
+  let lastAll = 0;
+  for (let n = 1; n <= 14; n++) {
+    const w = waveComposition(n);
+    const total = Object.values(w).reduce((a, b) => a + b, 0);
+    if (total < lastAll) monotoneAll = false;
+    lastAll = total;
+  }
+  check('total ship count never shrinks through wave 14', monotoneAll);
+}
+
+// ---- 1b. queue order: heavies lead, wardens follow their barges ---------------
+
+{
+  const q = buildQueue(waveComposition(8));
+  const mix = waveComposition(8);
+  const count = (type) => q.filter((s) => s === type).length;
+  check('queue carries the whole composition',
+    count('stinger') === mix.stingers && count('harvester') === mix.harvesters
+    && count('marauder') === mix.marauders && count('wraith') === mix.wraiths
+    && count('warden') === mix.wardens && count('siphon') === mix.siphons, q.join(','));
+  check('the marauder leads the wave', q[0] === 'marauder');
+  const firstWarden = q.indexOf('warden');
+  const firstHarvester = q.indexOf('harvester');
+  check('a warden never arrives before the first harvester', firstWarden > firstHarvester);
+  check('a warden arrives right behind a harvester', q[firstWarden - 1] === 'harvester');
+  check('wardens with no barge still fly',
+    buildQueue({ wardens: 2 }).filter((s) => s === 'warden').length === 2);
+}
+
+// ---- 1c. ships come out of EVERY open rift, not just the first ----------------
+
+{
+  const rifts = [{ k: 1, closing: false }, { k: 1, closing: false }, { k: 1, closing: false }];
+  const picks = [0, 1, 2, 3, 4, 5].map((c) => nextRiftIndex(rifts, c));
+  check('spawns walk the open rifts in turn', picks.join('') === '012012', picks.join(''));
+  check('every open rift gets used', new Set(picks).size === 3);
+  rifts[1].closing = true;
+  const picks2 = [0, 1, 2, 3].map((c) => nextRiftIndex(rifts, c));
+  check('a closing rift is skipped', !picks2.includes(1) && picks2.includes(0) && picks2.includes(2),
+    picks2.join(''));
+  rifts[2].k = 0.3;
+  check('a rift still tearing open is skipped', [0, 1, 2].every((c) => nextRiftIndex(rifts, c) === 0));
+  check('no open rift means no spawn', nextRiftIndex([{ k: 0.2, closing: false }], 0) === -1);
+}
+
+// ---- 1d. the wraith's cloak has a fair, readable window -----------------------
+
+{
+  const cfg = INVASION.wraith;
+  let visibleTime = 0;
+  const step = 0.01;
+  for (let t = 0; t < cfg.cloakCycle; t += step) if (cloakAmount(t, cfg) < 0.5) visibleTime += step;
+  check('wraith is visible for a real share of each cycle',
+    visibleTime > 0.8 && visibleTime < cfg.cloakCycle * 0.7, `${visibleTime.toFixed(2)}s`);
+  check('mid-window it is fully visible', cloakAmount(cfg.visibleFor / 2, cfg) === 0);
+  check('out of window it is fully cloaked', cloakAmount(cfg.visibleFor + 0.5, cfg) === 1);
+  check('the cloak ramps rather than pops', cloakAmount(0.1, cfg) > 0 && cloakAmount(0.1, cfg) < 1);
+  check('cycles repeat', cloakAmount(0.7, cfg) === cloakAmount(0.7 + cfg.cloakCycle * 3, cfg));
+}
+
+// ---- 1e. seeker steering bends, but only so far per frame ----------------------
+
+{
+  // Heading -z, target +x: with a small turn budget the heading moves only
+  // that far; with a big one it snaps to the target.
+  const [x, , z] = steerHeading(0, 0, -1, 1, 0, 0, 0.1);
+  const turned = Math.atan2(x, -z);
+  check('a seeker turns at most its budget', Math.abs(turned - 0.1) < 1e-6, `${turned.toFixed(4)} rad`);
+  check('steered heading stays unit length', Math.abs(Math.hypot(x, z) - 1) < 1e-9);
+  const snap = steerHeading(0, 0, -1, 1, 0, 0, 3);
+  check('a generous budget reaches the target', Math.abs(snap[0] - 1) < 1e-9 && Math.abs(snap[2]) < 1e-9);
+  const same = steerHeading(0, 1, 0, 0, 1, 0, 0.05);
+  check('already on target: unchanged', same.every(Number.isFinite) && Math.abs(same[1] - 1) < 1e-9);
+  const opposite = steerHeading(0, 0, 1, 0, 0, -1, 0.2);
+  check('a dead-astern target still yields a finite turn', opposite.every(Number.isFinite)
+    && Math.abs(Math.hypot(...opposite) - 1) < 1e-6, JSON.stringify(opposite));
 }
 
 // ---- 2. combos build inside the window and break outside it --------------------
